@@ -1,0 +1,6 @@
+build/ 
+dist/ 
+dataset/ 
+__pycache__/ 
+*.exe 
+*.pyc 

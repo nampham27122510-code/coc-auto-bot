@@ -1,0 +1,6 @@
+customtkinter
+pure-python-adb
+opencv-python
+numpy
+pytesseract
+Pillow

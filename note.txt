@@ -1,0 +1,102 @@
+1. DỰ ÁN NÀY LÀM GÌ?
+----------------------------------------------------------------
+Đây là chương trình Python tự động chơi Clash of Clans trên giả lập
+LDPlayer 9 (độ phân giải 960x540, 30 FPS). Bot tự động nhận diện màn hình
+bằng OpenCV/OCR và gửi thao tác qua ADB.
+
+Các tính năng chính:
+  - Tự động kiểm tra & khôi phục kết nối khi hiện popup "THỬ LẠI".
+  - Quản lý thợ xây an toàn (chống mất Gem): OCR đọc dạng "X/Y". Tuyệt đối
+    bỏ qua thợ Goblin (mẫu số 7 tốn Gem). Chỉ xả tài nguyên khi mẫu số 6
+    và tử số từ 1 đến 5.
+  - Tự động xả Vàng/Dầu nâng Tường thành trực tiếp từ menu "CÔNG TRÌNH VÀ TƯỜNG"
+    khi tài nguyên vượt ngưỡng thiết lập.
+  - Tìm trận cướp tài nguyên: Mở menu Chiến đấu -> Chọn Tìm trận 1700 ->
+    Soi Vàng/Dầu đối thủ qua OCR. Đạt mốc thì thả quân (deploy_troops), ít thì Next.
+  - Cung cấp công cụ GUI Crop Tool (Tiếng Việt) giúp khoanh vùng ảnh mẫu & ROI tài nguyên 1 lần duy nhất.
+
+
+2. CẦN BIẾT TRƯỚC KHI ĐỌC CODE (CÁC KHÁI NIỆM)
+----------------------------------------------------------------
+LDPlayer            : Giả lập Android trên Windows.
+ADB                 : Kết nối & điều khiển giả lập qua địa chỉ 127.0.0.1:5555.
+OpenCV / Matching   : Nhận diện nút bấm qua ảnh mẫu PNG trong thư mục assets/.
+OCR / Tesseract     : Trích xuất số Thợ xây (X/Y) và mốc Vàng/Dầu/Dầu đen.
+ROI (Region of Interest): Vùng tọa độ chữ nhật [x1, y1, x2, y2] dùng để cắt ảnh đọc OCR.
+config.json         : File lưu động các tọa độ ROI & cấu hình xả tường xuất ra từ GUI Crop Tool.
+
+
+3. CẤU TRÚC THƯ MỤC HỆ THỐNG (CẬP NHẬT MỚI NHẤT)
+----------------------------------------------------------------
+coc_auto_bot/
+│── assets/                     Thư mục chứa ảnh mẫu OpenCV (.png)
+│   ├── button_battle.png       Nút Chiến đấu ở Làng chính (góc dưới trái)
+│   ├── button_find_match_1700.png  Nút Tìm trận đấu 1700 (menu chọn chế độ)
+│   ├── button_next.png         Nút Next / Tìm nhà tiếp (khi soi nhà đối thủ)
+│   ├── button_retry.png        Nút THỬ LẠI khi mất kết nối
+│   ├── builder_region.png      Vùng chứa số thợ xây trên đỉnh màn hình
+│   ├── button_build.png        Nút Cái Búa màu vàng "Xây dựng" (mở menu)
+│   └── wall_item.png           Dòng Tường thành trong menu gợi ý
+│
+│── core/                       Các module xử lý logic nền
+│   ├── __init__.py             Đánh dấu core là Python package
+│   ├── adb_controller.py       Chụp màn hình, click, swipe via ADB + DNS 8.8.8.8
+│   ├── bot_logic.py            "Bộ não" điều khiển vòng lặp chính của Bot
+│   ├── emulator_controller.py  Điều khiển LDPlayer qua ldconsole (960x540, 30FPS)
+│   └── image_processing.py     OpenCV Template Matching + OCR Tesseract đọc số
+│
+│── gui/                        Giao diện người dùng (CustomTkinter)
+│   ├── __init__.py             Đánh dấu gui là Python package
+│   └── app_ui.py               Giao diện GUI 3 tab + Log Queue + Thiết lập mốc
+│
+│── tools/                      Các công cụ hỗ trợ độc lập
+│   └── crop_tool.py            GUI Setup bằng Tiếng Việt: khoanh vùng ảnh mẫu PNG & ROI tài nguyên
+│
+│── config.json                 File lưu trữ cấu hình tọa độ ROI & ngưỡng tài nguyên xả tường
+│── config.py                   Cấu hình hằng số mặc định (Port 5555, đường dẫn, tọa độ nút)
+│── main.py                     File khởi chạy chính (BotManager kết nối GUI & Core Thread)
+│── test_crop_ocr.py            Script test nhanh ADB screencap & đọc số OCR
+│── setup_project.py            Tự động tạo cấu trúc thư mục rỗng
+│── note.txt                    Tài liệu hướng dẫn & giải thích kiến trúc dự án
+│── README.md                   Tài liệu giới thiệu dự án
+└── requirements.txt            Danh sách thư viện phụ thuộc
+
+
+4. LUỒNG CHẠY TỔNG THỂ
+----------------------------------------------------------------
+Bước 1. Người dùng chạy "python tools/crop_tool.py" (chỉ làm 1 lần ban đầu):
+        - Chụp màn hình giả lập, khoanh vùng kéo thả bằng chuột.
+        - Chọn nhãn Tiếng Việt tương ứng (Nút Chiến đấu, Nút Tìm trận 1700, Nút Next,
+          ROI Tài nguyên Ta, ROI Tài nguyên Địch...).
+        - Bấm Lưu: Tool tự lưu file PNG vào assets/ và tọa độ ROI vào config.json.
+
+Bước 2. Chạy "python main.py" mở Giao diện Bot chính (AppUI):
+        - Tùy chỉnh mốc Vàng/Dầu cướp nhà và Ngưỡng Vàng/Dầu xả tường. Bấm [BẮT ĐẦU].
+
+Bước 3. Vòng lặp chính trong BotLogic (luồng song song):
+        1) check_connection_error(): Xử lý popup mất kết nối ("THỬ LẠI").
+        2) process_home_village():
+           - OCR đọc thợ rảnh (chặn Y=7 Goblin Builder, chỉ chạy khi Y=6 và 1<=X<=5).
+           - Nếu Vàng/Dầu vượt ngưỡng (ví dụ 5M): Bấm Nút Cái Búa "Xây dựng" ->
+             Vuốt cuộn menu từ dưới lên -> Bấm chọn Tường thành -> Bấm Xác nhận.
+        3) check_and_search_match():
+           - Nếu ở Làng nhà: Bấm nút "Chiến đấu" (bottom-left).
+           - Nếu ở Menu chế độ: Bấm nút "Tìm trận đấu 1700".
+           - Nếu ở Màn hình soi nhà: OCR đọc Vàng/Dầu/Dầu đen địch qua RESOURCE_ENEMY_ROI.
+             + Đạt mốc: Gọi deploy_troops() thả quân cướp tài nguyên -> End Battle -> Về nhà.
+             + Ít tài nguyên: Bấm button_next.png tìm nhà tiếp theo.
+
+
+5. GIẢI THÍCH TỪNG FILE TOOL & CẤU HÌNH MỚI
+----------------------------------------------------------------
+5.1 tools/crop_tool.py
+Giao diện Tkinter + OpenCV cho phép người dùng chụp ảnh màn hình từ LDPlayer, kéo chuột
+khoanh vùng và ánh xạ trực tiếp tên Tiếng Việt sang file PNG trong assets/ hoặc lưu
+tọa độ rectangle ROI [x1, y1, x2, y2] vào config.json.
+
+5.2 config.json
+Tự động được tạo/cập nhật bởi crop_tool.py và app_ui.py. Lưu trữ:
+  - RESOURCE_MY_VILLAGE_ROI: Vùng đọc OCR Vàng/Dầu làng nhà.
+  - RESOURCE_ENEMY_ROI: Vùng đọc OCR Vàng/Dầu/Dầu đen làng địch.
+  - ENABLE_WALL_UPGRADE: Bật/Tắt tính năng nâng tường.
+  - WALL_UPGRADE_GOLD_THRESHOLD / ELIXIR_THRESHOLD: Ngưỡng xả tài nguyên vào tường.

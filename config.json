@@ -1,0 +1,176 @@
+{
+    "screen_size": [
+        960,
+        540
+    ],
+    "LDPLAYER_PATH": "D:\\LDPlayer\\LDPlayer9",
+    "LDPLAYER_INDEX": 1,
+    "MIN_GOLD": 1000000,
+    "MIN_ELIXIR": 1000000,
+    "MIN_DARK_ELIXIR": 0,
+    "LOOT_MATCH_MODE": "OR",
+    "RESOURCE_ENEMY_ROI": [
+        16,
+        67,
+        120,
+        136
+    ],
+    "STRATEGY": "Thả quân cơ bản",
+    "MANUAL_POSITIONS": {
+        "WALL_UPGRADE_GOLD_BTN": [
+            453,
+            428
+        ],
+        "WALL_UPGRADE_ELIXIR_BTN": [
+            559,
+            420
+        ],
+        "WALL_CONFIRM_BTN": [
+            663,
+            476
+        ],
+        "TROOP_DROP_ZONE": [
+            93,
+            257
+        ],
+        "RELOAD_GAME_POS": [
+            300,
+            333
+        ],
+        "FALLBACK_SAFE_CLICK_POS": [
+            254,
+            5
+        ],
+        "BUILDER_MENU_SCROLL_START": [
+            520,
+            360
+        ],
+        "BUILDER_MENU_SCROLL_END": [
+            520,
+            180
+        ]
+    },
+    "WALL_RETRY_BATTLES_LIMIT": 5,
+    "WALL_MATCH_THRESHOLD": 0.8,
+    "WALL_CARD_XN_EXCLUDE_RATIO": [
+        0.4,
+        0.7
+    ],
+    "WALL_MENU_MAX_SWIPES": 6,
+    "WALL_MENU_SWIPE_DURATION": 1200,
+    "DEPLOY_CARDS_CONFIG": [
+        {
+            "slot": 1,
+            "pos": [
+                104,
+                484
+            ],
+            "type": "troop",
+            "clicks_count": 16
+        },
+        {
+            "slot": 2,
+            "pos": [
+                186,
+                491
+            ],
+            "type": "troop",
+            "clicks_count": 6
+        },
+        {
+            "slot": 3,
+            "pos": [
+                259,
+                477
+            ],
+            "type": "troop",
+            "clicks_count": 1
+        },
+        {
+            "slot": 4,
+            "pos": [
+                335,
+                489
+            ],
+            "type": "troop",
+            "clicks_count": 1
+        },
+        {
+            "slot": 5,
+            "pos": [
+                413,
+                488
+            ],
+            "type": "troop",
+            "clicks_count": 1
+        },
+        {
+            "slot": 6,
+            "pos": [
+                496,
+                478
+            ],
+            "type": "troop",
+            "clicks_count": 1
+        },
+        {
+            "slot": 7,
+            "pos": [
+                554,
+                488
+            ],
+            "type": "troop",
+            "clicks_count": 1
+        },
+        {
+            "slot": 8,
+            "pos": [
+                629,
+                481
+            ],
+            "type": "spell",
+            "clicks_count": 11
+        }
+    ],
+    "SPELL_CONFIG": {
+        "DROP_MODE": "evenly",
+        "TARGET_POSITIONS": [
+            [
+                362,
+                230
+            ],
+            [
+                371,
+                310
+            ],
+            [
+                450,
+                251
+            ]
+        ]
+    },
+    "ENABLE_WALL_UPGRADE": true,
+    "WALL_UPGRADE_GOLD_THRESHOLD": 5000000,
+    "WALL_UPGRADE_ELIXIR_THRESHOLD": 5000000,
+    "OCR_ONLY_FOR_WALL": false,
+    "COLLECT_DATA_MODE": false,
+    "COLLECT_MAX_SAMPLES": 100,
+    "DEPLOY_MODE": "left_corner",
+    "SPELL_ENABLED": true,
+    "SPELL_MODE": "enemy_center_random",
+    "SCREENSHOT_MIN_INTERVAL": 0.25,
+    "ZOOM_ENABLE_CTRL_WHEEL": false,
+    "IDLE_CLICK_BEST_MATCH": false,
+    "IDLE_CLICK_MIN_SCORE": 0.2,
+    "RETURN_HOME_POS": [
+        504,
+        468
+    ],
+    "TEMPLATE_MIN_VOTES": 2,
+    "TEMPLATE_VOTE_TOL": 14,
+    "TEMPLATE_SOLO_SCORE": 0.95,
+    "WALL_MIN_VARIANT_VOTES": 2,
+    "WALL_WEIGHT_PRICE": 0.6,
+    "WALL_WEIGHT_ID": 0.4,
+    "WALL_MIN_ID_SCORE": 0.6
+}
