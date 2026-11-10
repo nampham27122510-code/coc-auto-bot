@@ -1,0 +1,487 @@
+{
+    "screen_size": [
+        960,
+        540
+    ],
+    "LDPLAYER_PATH": "D:\\LDPlayer\\LDPlayer9",
+    "LDPLAYER_INDEX": 1,
+    "MIN_GOLD": 1000000,
+    "MIN_ELIXIR": 1000000,
+    "MIN_DARK_ELIXIR": 0,
+    "LOOT_MATCH_MODE": "OR",
+    "RESOURCE_ENEMY_ROI": [
+        7,
+        55,
+        130,
+        144
+    ],
+    "STRATEGY": "Thả quân cơ bản",
+    "MANUAL_POSITIONS": {
+        "WALL_UPGRADE_GOLD_BTN": [
+            453,
+            428
+        ],
+        "WALL_UPGRADE_ELIXIR_BTN": [
+            559,
+            420
+        ],
+        "WALL_CONFIRM_BTN": [
+            663,
+            476
+        ],
+        "TROOP_DROP_ZONE": [
+            106,
+            252
+        ],
+        "RELOAD_GAME_POS": [
+            300,
+            333
+        ],
+        "FALLBACK_SAFE_CLICK_POS": [
+            944,
+            17
+        ],
+        "BUILDER_MENU_SCROLL_START": [
+            520,
+            360
+        ],
+        "BUILDER_MENU_SCROLL_END": [
+            520,
+            180
+        ],
+        "DEPLOY_POINT_RIGHT": [
+            853,
+            260
+        ]
+    },
+    "WALL_RETRY_BATTLES_LIMIT": 5,
+    "WALL_MATCH_THRESHOLD": 0.85,
+    "WALL_CARD_XN_EXCLUDE_RATIO": [
+        0.4,
+        0.7
+    ],
+    "WALL_MENU_MAX_SWIPES": 6,
+    "WALL_MENU_SWIPE_DURATION": 250,
+    "DEPLOY_CARDS_CONFIG": [
+        {
+            "pos": [
+                108,
+                485
+            ],
+            "type": "troop",
+            "clicks_count": 25,
+            "zones": {
+                "spread_left": [
+                    [
+                        254,
+                        122
+                    ],
+                    [
+                        142,
+                        208
+                    ],
+                    [
+                        355,
+                        38
+                    ],
+                    [
+                        189,
+                        173
+                    ],
+                    [
+                        285,
+                        107
+                    ],
+                    [
+                        400,
+                        28
+                    ],
+                    [
+                        103,
+                        236
+                    ],
+                    [
+                        415,
+                        9
+                    ]
+                ],
+                "random_around": [
+                    [
+                        329,
+                        72
+                    ],
+                    [
+                        285,
+                        102
+                    ],
+                    [
+                        213,
+                        158
+                    ],
+                    [
+                        132,
+                        210
+                    ],
+                    [
+                        586,
+                        47
+                    ],
+                    [
+                        603,
+                        58
+                    ],
+                    [
+                        634,
+                        87
+                    ],
+                    [
+                        668,
+                        107
+                    ],
+                    [
+                        715,
+                        145
+                    ],
+                    [
+                        763,
+                        182
+                    ],
+                    [
+                        817,
+                        221
+                    ],
+                    [
+                        836,
+                        238
+                    ],
+                    [
+                        869,
+                        265
+                    ],
+                    [
+                        796,
+                        326
+                    ],
+                    [
+                        761,
+                        352
+                    ],
+                    [
+                        687,
+                        412
+                    ],
+                    [
+                        139,
+                        313
+                    ],
+                    [
+                        195,
+                        357
+                    ],
+                    [
+                        242,
+                        391
+                    ],
+                    [
+                        284,
+                        421
+                    ]
+                ]
+            },
+            "skill_mode": "none",
+            "skill_delay": 0.0,
+            "skill_pos": [],
+            "slot": 1
+        },
+        {
+            "pos": [
+                175,
+                483
+            ],
+            "type": "troop",
+            "clicks_count": 25,
+            "zones": {
+                "spread_left": [
+                    [
+                        152,
+                        209
+                    ],
+                    [
+                        196,
+                        168
+                    ],
+                    [
+                        239,
+                        123
+                    ],
+                    [
+                        261,
+                        133
+                    ],
+                    [
+                        372,
+                        50
+                    ]
+                ],
+                "random_around": [
+                    [
+                        127,
+                        218
+                    ],
+                    [
+                        361,
+                        44
+                    ],
+                    [
+                        288,
+                        105
+                    ],
+                    [
+                        175,
+                        342
+                    ],
+                    [
+                        266,
+                        408
+                    ],
+                    [
+                        676,
+                        112
+                    ],
+                    [
+                        795,
+                        200
+                    ],
+                    [
+                        765,
+                        350
+                    ],
+                    [
+                        720,
+                        386
+                    ]
+                ]
+            },
+            "skill_mode": "none",
+            "skill_delay": 0.0,
+            "skill_pos": [],
+            "slot": 2
+        },
+        {
+            "pos": [
+                261,
+                507
+            ],
+            "type": "hero",
+            "clicks_count": 1,
+            "zones": {
+                "spread_left": [
+                    [
+                        275,
+                        127
+                    ]
+                ],
+                "random_around": [
+                    [
+                        83,
+                        252
+                    ]
+                ]
+            },
+            "skill_mode": "none",
+            "skill_delay": 0.0,
+            "skill_pos": [],
+            "slot": 3
+        },
+        {
+            "pos": [
+                335,
+                468
+            ],
+            "type": "hero",
+            "clicks_count": 1,
+            "zones": {
+                "spread_left": [
+                    [
+                        287,
+                        111
+                    ]
+                ],
+                "random_around": [
+                    [
+                        239,
+                        133
+                    ]
+                ]
+            },
+            "skill_mode": "none",
+            "skill_delay": 0.0,
+            "skill_pos": [],
+            "slot": 4
+        },
+        {
+            "pos": [
+                409,
+                492
+            ],
+            "type": "hero",
+            "clicks_count": 1,
+            "zones": {
+                "spread_left": [
+                    [
+                        305,
+                        111
+                    ]
+                ],
+                "random_around": [
+                    [
+                        259,
+                        121
+                    ]
+                ]
+            },
+            "skill_mode": "delay",
+            "skill_delay": 15.0,
+            "skill_pos": [
+                409,
+                492
+            ],
+            "slot": 5
+        },
+        {
+            "pos": [
+                488,
+                500
+            ],
+            "type": "hero",
+            "clicks_count": 1,
+            "zones": {
+                "spread_left": [
+                    [
+                        86,
+                        252
+                    ]
+                ],
+                "random_around": [
+                    [
+                        84,
+                        264
+                    ]
+                ]
+            },
+            "skill_mode": "immediate",
+            "skill_delay": 0.0,
+            "skill_pos": [
+                478,
+                493
+            ],
+            "slot": 6
+        },
+        {
+            "pos": [
+                555,
+                497
+            ],
+            "type": "hero",
+            "clicks_count": 1,
+            "zones": {
+                "random_around": [
+                    [
+                        868,
+                        257
+                    ]
+                ]
+            },
+            "skill_mode": "immediate",
+            "skill_delay": 0.0,
+            "skill_pos": [
+                554,
+                492
+            ],
+            "slot": 7
+        },
+        {
+            "pos": [
+                633,
+                485
+            ],
+            "type": "spell",
+            "clicks_count": 11,
+            "zones": {},
+            "skill_mode": "none",
+            "skill_delay": 0.0,
+            "skill_pos": [],
+            "slot": 8
+        }
+    ],
+    "SPELL_CONFIG": {
+        "DROP_MODE": "evenly",
+        "TARGET_POSITIONS": [
+            [
+                362,
+                230
+            ],
+            [
+                371,
+                310
+            ],
+            [
+                450,
+                251
+            ]
+        ]
+    },
+    "ENABLE_WALL_UPGRADE": true,
+    "WALL_UPGRADE_GOLD_THRESHOLD": 5000000,
+    "WALL_UPGRADE_ELIXIR_THRESHOLD": 5000000,
+    "OCR_ONLY_FOR_WALL": false,
+    "COLLECT_DATA_MODE": false,
+    "COLLECT_MAX_SAMPLES": 100,
+    "DEPLOY_MODE": "random_around",
+    "SPELL_ENABLED": true,
+    "SPELL_MODE": "enemy_center_random",
+    "SCREENSHOT_MIN_INTERVAL": 0.25,
+    "ZOOM_ENABLE_CTRL_WHEEL": false,
+    "IDLE_CLICK_BEST_MATCH": false,
+    "IDLE_CLICK_MIN_SCORE": 0.2,
+    "RETURN_HOME_POS": [
+        504,
+        468
+    ],
+    "TEMPLATE_MIN_VOTES": 2,
+    "TEMPLATE_VOTE_TOL": 14,
+    "TEMPLATE_SOLO_SCORE": 0.95,
+    "WALL_MIN_VARIANT_VOTES": 2,
+    "WALL_WEIGHT_PRICE": 0.6,
+    "WALL_WEIGHT_ID": 0.4,
+    "WALL_MIN_ID_SCORE": 0.6,
+    "WALL_MENU_SWIPE_MULT": 1.3,
+    "WALL_UPGRADE_CONTINUOUS": true,
+    "WALL_STOP_MODE": "ANY",
+    "WALL_CONTINUOUS_SAFETY_CAP": 300,
+    "OCR_FAST_MODE": true,
+    "OCR_FAST_SCALE": 2.0,
+    "OCR_FAST_THRESH": 175,
+    "OCR_USE_TESSEROCR": true,
+    "NEXT_BTN_ROI": [
+        640,
+        330,
+        960,
+        540
+    ],
+    "NEXT_MATCH_SCALES": [
+        1.0
+    ],
+    "SURRENDER_BTN_ROI": [
+        437,
+        235,
+        490,
+        251
+    ],
+    "CONFIRM_SURRENDER_ROI": [
+        240,
+        180,
+        740,
+        460
+    ]
+}

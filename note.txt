@@ -1,0 +1,116 @@
+================================================================================
+          HƯỚNG DẪN & CẤU TRÚC DỰ ÁN COC AUTO BOT (LDPLAYER 9)
+================================================================================
+
+1. TỔNG QUAN DỰ ÁN
+--------------------------------------------------------------------------------
+Dự án này là một chương trình tự động hóa (Bot) bằng Python cho trò chơi Clash of Clans,
+chạy trên giả lập LDPlayer 9 (cấu hình chuẩn: 960x540, 30 FPS, 160 DPI).
+
+Bot tự động thực hiện các thao tác chính:
+  - Nhận diện màn hình & các nút bấm bằng OpenCV (Template Matching).
+  - Trích xuất chữ và số (tài nguyên, thợ xây...) bằng OCR (Tesseract).
+  - Điều khiển giả lập (chụp màn hình, click, vuốt swipe) thông qua kết nối ADB.
+  - Tự động khắc phục sự cố: mất kết nối, popup ngắt mạng, treo màn hình (Stuck Watchdog).
+  - Quản lý thợ xây an toàn, tự động nâng Tường thành khi dư thừa Vàng/Dầu.
+  - Soi nhà đối thủ và thả quân/phép cướp tài nguyên theo các cấu hình linh hoạt.
+  - Chế độ cào dữ liệu (Collect Data Mode) phục vụ thu thập ảnh huấn luyện OCR.
+
+
+2. CÁC KHÁI NIỆM QUAN TRỌNG CẦN BIẾT
+--------------------------------------------------------------------------------
+- LDPlayer 9          : Giả lập Android dùng để chạy Clash of Clans.
+- ADB (Android Debug) : Giao thức kết nối & truyền lệnh click/swipe/screencap từ Python
+                        vào giả lập qua cổng 127.0.0.1:5555.
+- OpenCV              : Thư viện xử lý ảnh. Bot dùng tính năng Template Matching để tìm
+                        vị trí các nút bấm (file .png trong assets/) trên màn hình.
+- OCR (Tesseract)     : Thư viện đọc chữ/số từ hình ảnh (dùng đọc số tài nguyên & thợ xây).
+- ROI (Region of Int) : Vùng hình chữ nhật [x1, y1, x2, y2] trên màn hình 960x540 được
+                        khoanh vùng riêng để cắt ảnh đọc OCR hoặc kiểm tra.
+- config.json         : File cấu hình động (lưu các ROI, tọa độ bấm thủ công, ngưỡng xả tường,
+                        thiết lập thẻ quân, kiểu thả phép...).
+
+
+3. SƠ ĐỒ & CHI TIẾT CẤU TRÚC THƯ MỤC
+--------------------------------------------------------------------------------
+coc_auto_bot/
+│
+├── assets/                     [THƯ MỤC CHỨA ẢNH MẪU OPENCV]
+│   ├── button_battle.png       - Nút "Chiến đấu" tại Làng chính
+│   ├── button_find_match_1700.png - Nút chọn chế độ Tìm trận đấu 1700
+│   ├── button_next.png         - Nút Next (Tìm nhà tiếp) khi soi nhà địch
+│   ├── button_return_home.png  - Nút "Về nhà" khi kết thúc trận
+│   ├── button_retry.png        - Nút "Thử lại" khi bị ngắt kết nối
+│   ├── button_reload.png       - Nút "Tải lại trò chơi"
+│   ├── button_build.png        - Nút Cái Búa màu vàng "Xây dựng" mở menu công trình
+│   ├── builder_region.png      - Ảnh vùng chứa số Thợ xây ở đỉnh màn hình
+│   └── wall_item_*.png         - Các mẫu thẻ Tường thành đề xuất trong menu Búa
+│
+├── core/                       [MÃ NGUỒN XỬ LÝ NỀN & LOGIC HỆ THỐNG]
+│   ├── __init__.py             - Khai báo Python Package cho thư mục core
+│   ├── adb_controller.py       - Quản lý kết nối ADB, chụp màn hình, click, swipe
+│   ├── bot_logic.py            - "Bộ não" chính điều khiển toàn bộ luồng hoạt động
+│   ├── emulator_controller.py  - Điều khiển bật/tắt/cấu hình LDPlayer qua ldconsole
+│   ├── image_processing.py     - Xử lý OpenCV Template Matching & OCR Tesseract
+│   └── updater.py              - Kiểm tra và tự động cập nhật phiên bản mới của Bot
+│
+├── gui/                        [GIAO DIỆN NGUỜI DÙNG - CUSTOMTKINTER]
+│   ├── __init__.py             - Khai báo Python Package cho thư mục gui
+│   └── app_ui.py               - Giao diện GUI 4 tab (Dashboard, Cấu hình Game,
+│                                 Tọa độ & Thẻ quân, Setup LDPlayer)
+│
+├── tools/                      [CÔNG CỤ HỖ TRỢ DỰ ÁN]
+│   └── crop_tool.py            - Tool GUI Tiếng Việt hỗ trợ kéo chuột khoanh vùng
+│                                 ảnh mẫu assets/ và lưu tọa độ ROI vào config.json
+│
+├── config.py                   - Khai báo các hằng số mặc định & xử lý load/save config.json
+├── config.json                 - File dữ liệu JSON lưu toàn bộ cấu hình tọa độ, ROI & tham số
+├── main.py                     - FILE KHỞI CHẠY CHÍNH (Điều phối GUI, ADB và Bot Thread)
+├── test_crop_ocr.py            - Script nhỏ dùng để test nhanh ADB screencap & đọc số OCR
+├── setup_project.py            - Script tự động tạo cấu trúc thư mục rỗng ban đầu
+├── build_exe.bat               - File Script đóng gói dự án thành file thực thi (.exe)
+├── COC_Auto_Bot.spec           - File cấu hình PyInstaller phục vụ đóng gói .exe
+├── note.txt                    - Tài liệu giải thích cấu trúc dự án (File này)
+├── README.md                   - Tài liệu giới thiệu tổng quan dự án
+└── requirements.txt            - Danh sách các thư viện Python phụ thuộc
+
+
+4. QUY TRÌNH VẬN HÀNH DỰ ÁN (WORKFLOW)
+--------------------------------------------------------------------------------
+[Bước 1: Thiết lập ban đầu (Chỉ làm 1 lần hoặc khi thay đổi màn hình)]
+  Chạy lệnh: `python tools/crop_tool.py`
+  - Chụp ảnh màn hình từ LDPlayer 9.
+  - Kéo chuột khoanh vùng các nút bấm -> Tool tự lưu ảnh .png vào thư mục `assets/`.
+  - Khoanh vùng tài nguyên Nhà Ta & Nhà Địch -> Tool lưu tọa độ ROI vào `config.json`.
+
+[Bước 2: Khởi chạy Bot]
+  Chạy lệnh: `python main.py`
+  - Chương trình tự động kiểm tra & đăng ký Tesseract OCR.
+  - Hiển thị giao diện AppUI (CustomTkinter).
+  - Tùy chỉnh các mốc Vàng/Dầu cướp nhà, ngưỡng xả Tường thành, thứ tự Thẻ quân...
+
+[Bước 3: Vòng lặp chính trong BotLogic (Chạy trên Thread riêng)]
+  1. Giám sát & Phục hồi (Stuck Watchdog & Connection Check):
+     - Xử lý popup ngắt kết nối ("THỬ LẠI", "TẢI LẠI TRÒ CHƠI").
+  2. Xử lý Làng chính (process_home_village):
+     - Đọc số thợ xây rảnh qua OCR.
+     - Kiểm tra tài nguyên Nhà Ta: nếu Vàng/Dầu vượt ngưỡng thiết lập -> Mở menu Búa,
+       vuốt tìm thẻ Tường thành và tiến hành xả tài nguyên nâng Tường.
+  3. Tìm kiếm & Tấn công (check_and_search_match):
+     - Mở Menu Chiến đấu -> Chọn Tìm trận đấu 1700.
+     - Soi nhà đối thủ: OCR đọc Vàng/Dầu/Dầu đen trong vùng RESOURCE_ENEMY_ROI.
+       + Nếu ĐẠT MỐC: Thả quân & phép theo danh sách DEPLOY_CARDS_CONFIG -> Kết thúc trận -> Về nhà.
+       + Nếu KHÔNG ĐẠT: Bấm nút Next (Tìm nhà tiếp theo).
+
+
+5. HƯỚNG DẪN CHO NGƯỜI MỚI BẮT ĐẦU PHÁT TRIỂN (DEVELOPER GUIDE)
+--------------------------------------------------------------------------------
+1. Muốn sửa/thêm Giao diện người dùng?
+   -> Chỉnh sửa file `gui/app_ui.py`.
+2. Muốn thay đổi logic đi đánh nhà, thả quân, nâng tường, xử lý kẹt?
+   -> Chỉnh sửa file `core/bot_logic.py`.
+3. Muốn tối ưu thuật toán nhận diện ảnh hoặc đọc số OCR?
+   -> Chỉnh sửa file `core/image_processing.py`.
+4. Muốn thêm/sửa các nút bấm hoặc tọa độ mặc định?
+   -> Chỉnh sửa file `config.py` và `tools/crop_tool.py`.
+================================================================================
