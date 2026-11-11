@@ -38,18 +38,79 @@ _BUILDER_PATTERN = re.compile(r"(\d{1,2})\s*[/|lI]\s*(\d{1,2})")
 # --- Nhận diện thẻ Tường trong menu Búa ---
 _WALL_TEMPLATES = (("card_wall.png", "card"), ("icon_wall.png", "icon"),
                    ("text_wall.png", "text"))   # ưu tiên thẻ nguyên dòng; text_wall.png = ảnh cắt riêng chữ "Tường thành" (không có "x N"), tùy chọn
-# Thẻ Tường nguyên dòng theo crop_tool (mục 12-21): wildcard -> nạp cả biến thể _2, _3... (mỗi pattern gắn gợi ý tài nguyên).
-# Mỗi file được khớp BẰNG MASK (đục lỗ vùng giữa 35%-65% chứa số lượng xN), lấy điểm CAO NHẤT trong mọi biến thể.
+# Thẻ Tường nguyên dòng theo crop_tool (mục 11-14): 2 loại tường (làng chính / làng phụ) x 2 tài nguyên,
+# KHÔNG phân cấp A/B. Wildcard -> nạp mọi ảnh của nhóm (cấp Tường tùy ý: _lv12, _2, _3...), mỗi pattern gắn gợi ý tài nguyên.
+# Mỗi file chỉ khớp phần TRÁI (icon + tên; bỏ xN ở 35%-65% và bỏ cả GIÁ), lấy điểm CAO NHẤT trong mọi ảnh của nhóm.
 _WALL_ITEM_PATTERNS = (
-    ("wall_item_lvA_gold*.png", "GOLD"),
-    ("wall_item_lvA_elixir*.png", "ELIXIR"),
-    ("wall_item_lvB_gold*.png", "GOLD"),
-    ("wall_item_lvB_elixir*.png", "ELIXIR"),
+    ("wall_item_main_gold*.png", "GOLD"),
+    ("wall_item_main_elixir*.png", "ELIXIR"),
+    ("wall_item_sub_gold*.png", "GOLD"),
+    ("wall_item_sub_elixir*.png", "ELIXIR"),
 )
+_WALL_ITEM_NAME_RE = re.compile(r"wall_item_(main|sub)_(gold|elixir)(?:_lv(\d+))?", re.I)
+
+
+def parse_wall_template(path):
+    """Tên file ảnh mẫu thẻ Tường -> {"village": "main"|"sub", "resource": "GOLD"|"ELIXIR", "level": int|None}.
+    vd wall_item_sub_gold_lv10_2.png -> làng phụ, Vàng, cấp 10. None nếu không phải ảnh thẻ Tường theo quy ước crop_tool."""
+    m = _WALL_ITEM_NAME_RE.search(os.path.basename(str(path)))
+    if not m:
+        return None
+    return {"village": m.group(1).lower(), "resource": m.group(2).upper(),
+            "level": int(m.group(3)) if m.group(3) else None}
+
+
+def wall_filter_from_config(village=None):
+    """Bộ lọc ảnh mẫu thẻ Tường = (làng, cấp, tài nguyên) đọc từ config.json (chỉnh trên UI).
+    village: 'main' | 'sub' (làng đang mở menu Búa). Cấp: WALL_LEVEL_MAIN / WALL_LEVEL_SUB (0 = không lọc).
+    Tài nguyên: WALL_RESOURCE AUTO | GOLD | ELIXIR (AUTO = không lọc)."""
+    try:
+        cfg = load_json_config()
+        lvl = int(cfg.get("WALL_LEVEL_SUB" if village == "sub" else "WALL_LEVEL_MAIN", 0) or 0)
+        res = str(cfg.get("WALL_RESOURCE", "AUTO")).strip().upper()
+    except Exception:
+        lvl, res = 0, "AUTO"
+    return {"village": village or None, "level": lvl if lvl > 0 else None,
+            "resource": res if res in ("GOLD", "ELIXIR") else None}
+
+
+def wall_template_allowed(path, flt):
+    """Ảnh mẫu wall_item_* có thuộc bộ lọc (làng, cấp, tài nguyên) không. Ảnh không theo quy ước tên -> False
+    (ảnh chung card_wall / icon_wall do chỗ gọi xử lý riêng)."""
+    info = parse_wall_template(path)
+    if info is None:
+        return False
+    if flt.get("village") and info["village"] != flt["village"]:
+        return False
+    if flt.get("resource") and info["resource"] != flt["resource"]:
+        return False
+    if flt.get("level") and info["level"] != flt["level"]:
+        return False
+    return True
+
+
+def wall_filter_is_strict(flt):
+    """Có lọc theo cấp hoặc tài nguyên -> CHỈ ảnh wall_item_* đúng bộ lọc được làm thang chấm điểm (bỏ ảnh chung)."""
+    return bool(flt.get("level") or flt.get("resource"))
+
+
+def wall_label(info):
+    """{'village','resource','level'} -> 'Tường làng phụ cấp 10 (Vàng)'."""
+    if not info:
+        return "Tường (chưa xác định cấp)"
+    v = "làng chính" if info["village"] == "main" else "làng phụ"
+    lv = f" cấp {info['level']}" if info.get("level") is not None else " (ảnh mẫu chưa gắn cấp)"
+    return f"Tường {v}{lv} ({'Vàng' if info['resource'] == 'GOLD' else 'Dầu'})"
+
+
 _WALL_MATCH_THRESHOLD_DEFAULT = 0.95   # ngưỡng khớp thẻ Tường (cũ 0.48 -> nhận nhầm công trình khác)
 _WALL_AMBIGUOUS_MIN = 0.60        # điểm template trong [0.60, threshold) = nghi vấn -> hỏi OCR
 _WALL_KEYWORDS = {"tuong", "wall", "wal", "uong", "thanh"}   # đã bỏ dấu + chữ thường
 _WALL_XN_EXCLUDE_DEFAULT = (0.35, 0.65)   # vùng giữa thẻ (tỉ lệ chiều rộng) chứa chữ số xN -> bị mask (đục lỗ 35%-65%)
+# Giá nâng cùng cấp có thể KHÁC NHAU giữa làng chính / làng phụ -> khi nhận diện thẻ Tường KHÔNG so khớp
+# phần giá (chữ số) mà chỉ so khớp phần TRÁI (icon + tên). Đủ / thiếu tài nguyên chỉ xét theo MÀU chữ giá
+# (trắng = đủ, đỏ = thiếu) trong _analyze_wall_right. config.json -> WALL_MATCH_IGNORE_PRICE = false để về cách cũ.
+_WALL_MATCH_IGNORE_PRICE_DEFAULT = True
 _WALL_FUZZY_RATIO = 0.80          # độ giống tối thiểu (difflib) với 'tuong' / 'wall'
 _WALL_PRICE_PATTERN = re.compile(r"x\s?\d{1,3}\b.*\d[\d.,\s]{5,}")   # 'x12 ... 1.234.567'
 _ocr_lang_cache = None
@@ -662,6 +723,16 @@ class ImageProcessor:
                                  roi=roi, scales=scales, fast=fast)
 
     @staticmethod
+    def find_anomaly_button(screen_img, image_list=None, threshold=None, return_details=False, fast=False):
+        """Xem hàm cấp module find_anomaly_button: tìm nút xử lý luồng lạ đầu tiên khớp trong danh sách N ảnh."""
+        return find_anomaly_button(screen_img, image_list, threshold, return_details, fast)
+
+    @staticmethod
+    def get_anomaly_template_paths(image_list=None):
+        """Danh sách ảnh nút luồng lạ có thật trên đĩa (xem hàm cấp module)."""
+        return get_anomaly_template_paths(image_list)
+
+    @staticmethod
     def _binarize(gray):
         """
         Nhị phân hóa bằng Otsu (không dùng ngưỡng cố định nên ít phụ thuộc độ sáng nền).
@@ -1084,13 +1155,28 @@ class ImageProcessor:
     @staticmethod
     def _masked_match(menu_img, tpl, ratio):
         """
-        Khớp ảnh mẫu thẻ Tường BỎ QUA vùng xN (Masked Template Matching):
+        Khớp ảnh mẫu thẻ Tường BỎ QUA vùng xN và (mặc định) cả phần GIÁ bên phải - chỉ so phần TRÁI
+        (icon + tên), vì giá khác nhau theo làng / cấp; đủ-thiếu tài nguyên do MÀU chữ giá quyết định.
+        (WALL_MATCH_IGNORE_PRICE = false -> cách cũ: mask vùng xN, vẫn so cả phần giá)
+        Masked Template Matching:
             cv2.matchTemplate(menu_img, tpl, cv2.TM_CCOEFF_NORMED, mask=mask)
         Bản OpenCV không hỗ trợ mask cho TM_CCOEFF_NORMED -> dự phòng: khớp riêng dải TRÁI và dải PHẢI
         rồi lấy trung bình có trọng số theo chiều rộng (kết quả tương đương, cùng thang điểm).
         Trả ma trận điểm (đã khử NaN/inf) cùng kích thước cv2.matchTemplate(menu_img, tpl, ...).
         """
         mask, (x0, x1) = ImageProcessor._wall_card_mask(tpl.shape, ratio)
+        try:
+            ignore_price = bool(load_json_config().get("WALL_MATCH_IGNORE_PRICE", _WALL_MATCH_IGNORE_PRICE_DEFAULT))
+        except Exception:
+            ignore_price = _WALL_MATCH_IGNORE_PRICE_DEFAULT
+        if ignore_price and x0 >= 8:
+            # CHỈ khớp phần TRÁI [0, x0) (icon + tên): bỏ cả xN lẫn GIÁ (giá khác nhau theo làng / cấp).
+            # Kết quả cắt về đúng kích thước khớp nguyên thẻ -> tọa độ góc trái-trên không đổi.
+            h, w = tpl.shape[:2]
+            out_w = max(1, menu_img.shape[1] - w + 1)
+            left_res = cv2.matchTemplate(menu_img, tpl[:, :x0], cv2.TM_CCOEFF_NORMED)
+            left_res = np.nan_to_num(left_res[:, :out_w], nan=-1.0, posinf=-1.0, neginf=-1.0)
+            return np.clip(left_res, -1.0, 1.0)
         try:
             res = cv2.matchTemplate(menu_img, tpl, cv2.TM_CCOEFF_NORMED, mask=mask)
         except cv2.error:
@@ -1160,19 +1246,24 @@ class ImageProcessor:
         return merged, have_template
 
     @staticmethod
-    def _wall_item_variant_candidates(menu_img, min_score, xn_ratio=None, best_out=None, vote_score=None):
+    def _wall_item_variant_candidates(menu_img, min_score, xn_ratio=None, best_out=None, vote_score=None, village=None):
         """
         Quét MỌI biến thể thẻ Tường nguyên dòng theo wildcard _WALL_ITEM_PATTERNS
-        (wall_item_lvA_gold*.png, wall_item_lvA_elixir*.png, wall_item_lvB_gold*.png, wall_item_lvB_elixir*.png,
-        gồm cả _2.png, _3.png...). Mỗi file khớp bằng MASK 8-bit bỏ qua 35%-65% chiều rộng ở giữa (số lượng xN
-        đổi sau mỗi lần nâng). Mỗi dòng chỉ giữ biến thể có ĐIỂM CAO NHẤT >= min_score.
+        (wall_item_main_gold*.png, wall_item_main_elixir*.png, wall_item_sub_gold*.png, wall_item_sub_elixir*.png,
+        gồm mọi cấp Tường _lvN và _2.png, _3.png...). Mỗi file chỉ khớp phần TRÁI (icon + tên): bỏ qua số lượng xN ở giữa VÀ phần giá bên phải
+        (giá khác nhau theo làng / cấp; đủ-thiếu xét bằng MÀU chữ giá ở _analyze_wall_right). Mỗi dòng chỉ giữ biến thể có ĐIỂM CAO NHẤT >= min_score.
         Trả list dict(x, y, score, h, kind='item', resource_hint, path) - tọa độ theo `menu_img`.
         """
         xn_ratio = ImageProcessor._wall_xn_exclude_ratio(xn_ratio)
         sh, sw = menu_img.shape[:2]
+        flt = wall_filter_from_config(village)
         found = []
         for pattern, hint in _WALL_ITEM_PATTERNS:
+            if village and f"wall_item_{village}_" not in pattern:
+                continue
             for path in _expand_template_paths(asset(pattern)):
+                if not wall_template_allowed(path, flt):    # đúng LÀNG + CẤP + TÀI NGUYÊN mới được làm thang chấm điểm
+                    continue
                 entry = _load_template_cached(path)
                 if entry is None:
                     continue
@@ -1196,7 +1287,8 @@ class ImageProcessor:
                     found.append({"x": lx + w // 2, "y": ly + h // 2, "score": float(score), "h": h,
                                   "kind": "item", "resource_hint": hint, "path": path})
         found.sort(key=lambda c: -c["score"])
-        n_files = len({path for pattern, _h in _WALL_ITEM_PATTERNS for path in _expand_template_paths(asset(pattern))})
+        n_files = len({path for pattern, _h in _WALL_ITEM_PATTERNS for path in _expand_template_paths(asset(pattern))
+                       if wall_template_allowed(path, flt)})
         vote_score = min_score if vote_score is None else vote_score
         merged = []      # cùng một dòng (lệch Y < nửa chiều cao): giữ biến thể điểm cao nhất
         for c in found:
@@ -1210,22 +1302,27 @@ class ImageProcessor:
         return merged
 
     @staticmethod
-    def _wall_identity_scores(menu_img, y, h, xn_ratio=None):
+    def _wall_identity_scores(menu_img, y, h, xn_ratio=None, village=None):
         """
         Điểm NHẬN DẠNG "đây là Tường" tại dòng y, CHỈ dùng phần TRÁI (icon + chữ 'Tường thành', trước vùng xN):
-        mỗi ảnh mẫu (icon_wall / text_wall / card_wall / wall_item_lvA|B_gold|elixir*, gồm cả _2, _3...) cho 1 điểm
+        mỗi ảnh mẫu (icon_wall / text_wall / card_wall / wall_item_main|sub_gold|elixir*, gồm mọi cấp _lvN, _2, _3...) cho 1 điểm
         cao nhất trong dải quanh y. Phần PHẢI (giá, icon Vàng/Dầu) KHÔNG tham gia -> công trình khác cùng giá không
         mượn điểm được. Trả {đường dẫn: điểm}.
         """
         xn_ratio = ImageProcessor._wall_xn_exclude_ratio(xn_ratio)
         sh, sw = menu_img.shape[:2]
+        flt = wall_filter_from_config(village)
         files = []
-        for filename, kind in _WALL_TEMPLATES:
-            path = asset(filename)
-            if os.path.isfile(path):
-                files.append((path, kind))
+        if not wall_filter_is_strict(flt):    # đã chọn cấp / tài nguyên -> ảnh chung (không mang cấp/tài nguyên) KHÔNG làm thang chấm
+            for filename, kind in _WALL_TEMPLATES:
+                path = asset(filename)
+                if os.path.isfile(path):
+                    files.append((path, kind))
         for pattern, _hint in _WALL_ITEM_PATTERNS:
-            files.extend((path, "item") for path in _expand_template_paths(asset(pattern)))
+            if village and f"wall_item_{village}_" not in pattern:
+                continue                      # chỉ so với Tường của ĐÚNG làng đang mở menu
+            files.extend((path, "item") for path in _expand_template_paths(asset(pattern))
+                         if wall_template_allowed(path, flt))   # đúng CẤP + TÀI NGUYÊN đã chọn
         pad = max(_WALL_ROW_MERGE_PX, int(h) // 2) + 6
         scores = {}
         for path, kind in files:
@@ -1479,7 +1576,7 @@ class ImageProcessor:
 
     @staticmethod
     def find_wall_cards_in_menu(menu_img, threshold=_WALL_MATCH_THRESHOLD_DEFAULT, ocr_full_scan=False, xn_exclude_ratio=None,
-                                require_keyword=None):
+                                require_keyword=None, village=None):
         """
         Nhận ẢNH CHỤP (cả màn hình hoặc chỉ menu), tự cắt PANEL menu Búa ở bên phải
         (WALL_MENU_X_RANGE trong config.json, mặc định 72%-100% chiều rộng) rồi quét trong panel;
@@ -1494,7 +1591,7 @@ class ImageProcessor:
         ox = int(sw * m0)
         panel = menu_img[:, ox:int(sw * m1)]
         cards = ImageProcessor._find_wall_cards_in_panel(panel, threshold, ocr_full_scan, xn_exclude_ratio,
-                                                         require_keyword)
+                                                         require_keyword, village=village)
         for c in cards:
             c["x"] = c["x"] + ox
             cx, cy = c["click_pos"]
@@ -1503,7 +1600,7 @@ class ImageProcessor:
 
     @staticmethod
     def _find_wall_cards_in_panel(menu_img, threshold=_WALL_MATCH_THRESHOLD_DEFAULT, ocr_full_scan=False, xn_exclude_ratio=None,
-                                  require_keyword=None):
+                                  require_keyword=None, village=None):
         """
         Quét 2 VÙNG độc lập trên từng dòng thẻ Tường của menu Búa. Trả list dict:
             {"y": center_y,
@@ -1550,11 +1647,11 @@ class ImageProcessor:
         except Exception as e:
             _log_once(f"wall_tpl_err_{type(e).__name__}", f"[⚠️ CẢNH BÁO] Lỗi khớp ảnh mẫu thẻ Tường: {e}")
             tcands = []
-        # Thẻ nguyên dòng đa biến thể (wall_item_lv*_*.png*) + mask xN: điểm cao nhất mỗi dòng, phải >= threshold
+        # Thẻ nguyên dòng đa biến thể (wall_item_main|sub_*.png*) + mask xN: điểm cao nhất mỗi dòng, phải >= threshold
         try:
             icands = ImageProcessor._wall_item_variant_candidates(
                 menu_img, ambiguous_min, xn_exclude_ratio, best_out=best_info,
-                vote_score=max(ambiguous_min, threshold - 0.05))
+                vote_score=max(ambiguous_min, threshold - 0.05), village=village)
         except Exception as e:
             _log_once(f"wall_item_scan_err_{type(e).__name__}", f"[⚠️ CẢNH BÁO] Lỗi quét biến thể thẻ Tường: {e}")
             icands = []
@@ -1619,7 +1716,9 @@ class ImageProcessor:
         #   Mặc định mỗi thành phần 1/3 (config.json: WALL_WEIGHT_IMAGE / WALL_WEIGHT_TEXT / WALL_WEIGHT_PRICE,
         #   tự chuẩn hóa tổng = 1) -> không thành phần nào vượt trội. Thành phần nào không đo được
         #   (không có ảnh mẫu / không có OCR) thì bỏ ra và chia lại trọng số cho phần còn lại; cần >= 2 thành phần.
-        #   Chữ giá ĐỎ (thiếu tài nguyên) vẫn tính là "có giá" -> thẻ vẫn được nhận (can_upgrade = False).
+        #   Ảnh mẫu CHỈ cắt thẻ ĐỦ tài nguyên (chữ giá TRẮNG). Thẻ chữ giá ĐỎ (thiếu tài nguyên) vẫn khớp ảnh/chữ
+        #   cao (cùng icon + tên) nhưng điểm GIÁ / TÀI NGUYÊN = 0 do MÀU chữ -> can_upgrade = False, KHÔNG nâng.
+        #   Thẻ đỏ vẫn được trả về (để bot biết hết tài nguyên mà dừng sớm) nhưng được nhận diện bằng điểm Ảnh + Chữ.
         try:
             cfg_w = load_json_config()
             w_img = float(cfg_w.get("WALL_WEIGHT_IMAGE", 1.0))
@@ -1627,29 +1726,56 @@ class ImageProcessor:
             w_price = float(cfg_w.get("WALL_WEIGHT_PRICE", 1.0))
             k_votes = max(1, int(cfg_w.get("WALL_MIN_VARIANT_VOTES", 2)))
         except Exception:
-            w_img, w_txt, w_price, k_votes = 1.0, 1.0, 1.0, 2
+            w_img, w_txt, w_price, k_votes = 1.0, 1.0, 0.6, 2
+
+        try:
+            min_id = float(cfg_w.get("WALL_MIN_ID_SCORE", 0.0))
+        except Exception:
+            min_id = 0.0
+        flt = wall_filter_from_config(village)
+        strict = wall_filter_is_strict(flt)
+        if strict and not any(wall_template_allowed(pth, flt) for pat, _h in _WALL_ITEM_PATTERNS
+                              for pth in _expand_template_paths(asset(pat))):
+            _log_once(f"wall_no_tpl_{flt['village']}_{flt['level']}_{flt['resource']}",
+                      f"[⚠️ CẢNH BÁO] Không có ảnh mẫu wall_item_{flt['village'] or '*'}_{(flt['resource'] or '*').lower()}"
+                      f"_lv{flt['level'] or '*'}.png -> không nhận được thẻ Tường. Hãy cắt thêm ảnh mẫu đúng cấp "
+                      f"(crop_tool) hoặc đặt Cấp Tường = 0 trên UI để không lọc theo cấp.")
 
         out = []
         for c in ImageProcessor._dedupe_wall_rows(rows):
             y, hh = c["y"], c.get("h", 0)
             try:
                 right = ImageProcessor._analyze_wall_right(menu_img, y, hh, c.get("resource_hint"))
-                ident = ImageProcessor._wall_identity_scores(menu_img, y, hh, xn_exclude_ratio)
+                ident = ImageProcessor._wall_identity_scores(menu_img, y, hh, xn_exclude_ratio, village=village)
             except Exception as e:
                 _log_once(f"wall_right_err_{type(e).__name__}", f"[⚠️ CẢNH BÁO] Lỗi phân tích thẻ Tường: {e}")
                 continue
 
-            # --- 1) Điểm ẢNH: mỗi loại Tường (A-Vàng, A-Dầu, B-Vàng, B-Dầu...) có N ảnh nguồn -> TÍNH ĐỀU CẢ N ẢNH
-            #        (trung bình mọi ảnh của nhóm đó, ảnh nào cũng góp điểm như nhau); chọn nhóm cao nhất ---
-            groups = []
-            for pattern, _hint in _WALL_ITEM_PATTERNS:
-                vals = [ident[pp] for pp in _expand_template_paths(asset(pattern)) if pp in ident]
-                if vals:
-                    groups.append(sum(vals) / len(vals))
-            generic = [ident[asset(fn)] for fn, _k in _WALL_TEMPLATES if asset(fn) in ident]
+            # --- 1) Điểm ẢNH + NHẬN DIỆN RÕ: làng (main/sub) + tài nguyên (Vàng/Dầu) + CẤP Tường ---
+            #        Mỗi ảnh mẫu wall_item_<main|sub>_<gold|elixir>[_lvN].png mang sẵn (làng, tài nguyên, cấp) trong tên file.
+            #        Dòng này khớp ảnh nào NHẤT thì chính là loại Tường đó (KHÔNG lấy trung bình các cấp khác nhau).
+            #        Có `village` (làng đang mở menu) thì chỉ xét ảnh của làng đó. ---
+            best_tpl = None   # (điểm, đường dẫn, info)
+            for pp, sc in ident.items():
+                info_t = parse_wall_template(pp)
+                if info_t is None or (village and info_t["village"] != village):
+                    continue
+                if best_tpl is None or sc > best_tpl[0]:
+                    best_tpl = (sc, pp, info_t)
+            generic = [] if strict else [ident[asset(fn)] for fn, _k in _WALL_TEMPLATES if asset(fn) in ident]
+            cand_scores = []
+            if best_tpl:
+                cand_scores.append(best_tpl[0])
             if generic:
-                groups.append(sum(generic) / len(generic))
-            img_score = max(0.0, min(1.0, max(groups))) if groups else None
+                cand_scores.append(sum(generic) / len(generic))
+            img_score = max(0.0, min(1.0, max(cand_scores))) if cand_scores else None
+            if strict and img_score is None:       # không có ảnh mẫu đúng làng/cấp/tài nguyên -> không thể chấm điểm ẢNH
+                continue
+            if img_score is not None and img_score < min_id:
+                _log_callback(f"[WALL] Loại y={y}: điểm ẢNH {img_score:.2f} < sàn {min_id:.2f} (WALL_MIN_ID_SCORE)")
+                continue
+            wall_info = best_tpl[2] if (best_tpl and best_tpl[0] >= ambiguous_min and best_tpl[0] >= max(generic or [0.0])) else None
+            wall_lbl = wall_label(wall_info)
 
             # --- 2) Điểm CHỮ: độ giống thực của chữ OCR cùng dòng với "Tường" (không cho 1.0 chỉ vì có chữ).
             #        Chữ chỉ giúp kết luận "đây là Tường"; nâng được hay không do phần GIÁ (trắng/đỏ) quyết định ---
@@ -1668,7 +1794,9 @@ class ImageProcessor:
             else:
                 icon_score = 0.0
             has_price = right.get("price_px", 0) >= _WALL_WHITE_MIN_PX
-            price_score = 0.6 * icon_score + 0.4 * (1.0 if has_price else 0.0)
+            color_ok = bool(right.get("can_upgrade"))      # chữ giá TRẮNG = đủ; ĐỎ / không có chữ sáng = thiếu
+            # Điểm tài nguyên do MÀU quyết định: trắng -> icon + có giá; đỏ -> 0 ("thấp tẹt") nên không nâng
+            price_score = (0.6 * icon_score + 0.4 * (1.0 if has_price else 0.0)) if color_ok else 0.0
 
             parts = [(n, w, v) for n, w, v in (("Ảnh", w_img, img_score), ("Chữ", w_txt, txt_score),
                                               ("Giá", w_price, price_score)) if v is not None and w > 0]
@@ -1676,20 +1804,35 @@ class ImageProcessor:
             total = sum(w * v for _, w, v in parts) / wsum
             fmt = lambda v: "n/a" if v is None else f"{v:.2f}"
             breakdown = (f"tổng {total:.2f} = trung bình(Ảnh {fmt(img_score)}, Chữ {fmt(txt_score)}, "
-                         f"Giá {price_score:.2f} [icon {icon_score:.2f}, giá {'có' if has_price else 'không'}])")
-            hint, rtype = c.get("resource_hint"), right.get("resource_type")
+                         f"Giá {price_score:.2f} [icon {icon_score:.2f}, chữ giá {'TRẮNG-đủ' if color_ok else 'ĐỎ/xám-thiếu'}])")
+            hint, rtype = (wall_info["resource"] if wall_info else c.get("resource_hint")), right.get("resource_type")
+            if flt["resource"] and rtype in ("GOLD", "ELIXIR") and rtype != flt["resource"]:
+                _log_callback(f"[WALL] Loại y={y}: icon {rtype} khác tài nguyên đã chọn ({flt['resource']})")
+                continue
             conflict = bool(hint and right.get("icon_src") == "icon" and hint != rtype)
             if conflict:
-                _log_callback(f"[WALL] Loại y={y}: ảnh thẻ nói {hint} nhưng icon mẫu nói {rtype} | {breakdown}")
+                _log_callback(f"[WALL] Loại y={y}: ảnh thẻ nói {hint} ({wall_lbl}) nhưng icon mẫu nói {rtype} | {breakdown}")
                 continue
             if len(parts) < 2:
                 _log_callback(f"[WALL] Loại y={y}: chỉ đo được {len(parts)} thành phần (cần >= 2) | {breakdown}")
                 continue
-            if total < threshold:
-                _log_callback(f"[WALL] Loại y={y}: điểm tổng < ngưỡng {threshold:.2f} | {breakdown}")
+            if color_ok:
+                gate = total          # đủ tài nguyên: cả 3 thành phần phải đạt ngưỡng như cũ
+            else:
+                # Thiếu tài nguyên (chữ đỏ): điểm giá = 0 do màu nên chỉ xét NHẬN DIỆN Tường bằng Ảnh + Chữ
+                # (cùng icon + tên). Vẫn nhận để bot biết hết tài nguyên, nhưng can_upgrade = False -> không nâng.
+                ident_vals = [v for n, _w, v in parts if n != "Giá"]
+                gate = (sum(ident_vals) / len(ident_vals)) if (ident_vals and icon_score > 0) else 0.0
+            if gate < threshold:
+                _log_callback(f"[WALL] Loại y={y}: điểm {'tổng' if color_ok else 'nhận diện (ảnh+chữ)'} "
+                              f"{gate:.2f} < ngưỡng {threshold:.2f} | {breakdown}")
                 continue
-            _log_callback(f"[WALL] Nhận thẻ Tường y={y} | {breakdown}")
-            out.append({**c, **right, "image_score": img_score, "text_score": txt_score,
+            _log_callback(f"[WALL] Nhận thẻ Tường y={y} = {wall_lbl} | {breakdown}")
+            out.append({**c, **right, "wall_village": wall_info["village"] if wall_info else None,
+                        "wall_level": wall_info["level"] if wall_info else None,
+                        "wall_label": wall_lbl,
+                        "wall_template": os.path.basename(best_tpl[1]) if wall_info else None,
+                        "image_score": img_score, "text_score": txt_score,
                         "price_score": round(price_score, 3), "total_score": round(total, 3)})
         out.sort(key=lambda c: (not c["can_upgrade"], -c["total_score"]))
         return out
@@ -1918,6 +2061,79 @@ def find_next_button(screen_img, threshold=0.75, pattern="button_next*.png"):
                       "[⚠️ CẢNH BÁO] Thấy nút Next NGOÀI NEXT_BTN_ROI -> hãy khoanh lại NEXT_BTN_ROI bằng tools/crop_tool.py "
                       f"(vị trí vừa thấy: {tuple(pos)})")
         return pos
+    return None
+
+
+# ---------------------------------------------------------------------------
+# NÚT XỬ LÝ LUỒNG LẠ (popup sự kiện / bảo trì / nút X, Hủy, Xác nhận...)
+#   Ảnh mẫu: assets/anomaly/anomaly_btn_1.png, anomaly_btn_2.png ... (crop_tool mục 22)
+#   Danh sách: config.json -> ANOMALY_BUTTON_IMAGES; ngưỡng: ANOMALY_MATCH_THRESHOLD
+# ---------------------------------------------------------------------------
+_ANOMALY_DIR = "anomaly"
+_ANOMALY_THRESHOLD_DEFAULT = 0.85
+
+
+def get_anomaly_template_paths(image_list=None):
+    """
+    Danh sách đường dẫn tuyệt đối các ảnh nút luồng lạ CÓ THẬT trên đĩa, theo đúng thứ tự cấu hình.
+    :param image_list: None -> đọc config.json ANOMALY_BUTTON_IMAGES. Mỗi phần tử là đường dẫn tương đối assets/ hoặc tuyệt đối.
+    Danh sách cấu hình RỖNG -> tự quét assets/anomaly/anomaly_btn_*.png (thả file vào thư mục là bot dùng được ngay).
+    """
+    if image_list is None:
+        image_list = _cfg_value("ANOMALY_BUTTON_IMAGES", [])
+    if not isinstance(image_list, (list, tuple)):
+        image_list = []
+    paths, seen = [], set()
+    for item in image_list:
+        try:
+            p = os.fspath(item)
+        except TypeError:
+            continue
+        if not p:
+            continue
+        p = os.path.normpath(p if os.path.isabs(p) else asset(p))
+        if p not in seen and os.path.isfile(p):
+            seen.add(p)
+            paths.append(p)
+    if not image_list:
+        folder = asset(_ANOMALY_DIR)
+        for p in sorted(glob.glob(os.path.join(glob.escape(folder), "anomaly_btn_*.png")), key=_natural_key):
+            p = os.path.normpath(p)
+            if p not in seen:
+                seen.add(p)
+                paths.append(p)
+    return paths
+
+
+def find_anomaly_button(screen_img, image_list=None, threshold=None, return_details=False, fast=False):
+    """
+    Tìm nút xử lý luồng lạ BẤT KỲ trên ảnh màn hình: duyệt LẦN LƯỢT từng ảnh trong danh sách, ảnh nào khớp đạt
+    ngưỡng trước thì trả về luôn (mỗi ảnh là một nút khác nhau nên KHÔNG bỏ phiếu đa ảnh như nút UI thường).
+    :param screen_img: ảnh màn hình BGR (960x540).
+    :param image_list: None -> config.json ANOMALY_BUTTON_IMAGES (xem get_anomaly_template_paths).
+    :param threshold:  None -> config.json ANOMALY_MATCH_THRESHOLD (mặc định 0.85).
+    :param return_details: True -> dict(pos, score, path, index, total) thay vì (x, y).
+    :param fast: True -> chỉ so khớp ảnh xám ở đúng 1 tỉ lệ (1.0) cho mỗi ảnh: nhanh gấp ~10 lần, dùng cho quét CHỦ ĐỘNG
+                 mỗi vòng lặp (ảnh nút cắt bằng crop_tool đã đúng cỡ 960x540 nên không cần thử nhiều tỉ lệ).
+    :return: (x, y) tâm nút đầu tiên khớp; None nếu quét hết danh sách mà không ảnh nào khớp (hoặc danh sách rỗng).
+    """
+    if screen_img is None or getattr(screen_img, "size", 0) == 0:
+        return None
+    paths = get_anomaly_template_paths(image_list)
+    if not paths:
+        return None
+    if threshold is None:
+        try:
+            threshold = float(_cfg_value("ANOMALY_MATCH_THRESHOLD", _ANOMALY_THRESHOLD_DEFAULT))
+        except (TypeError, ValueError):
+            threshold = _ANOMALY_THRESHOLD_DEFAULT
+    for index, path in enumerate(paths, 1):
+        hit = find_template_any(screen_img, [path], threshold, return_details=True, min_votes=1, fast=bool(fast))
+        if hit:
+            if return_details:
+                return {"pos": tuple(hit["pos"]), "score": float(hit["score"]), "path": path,
+                        "index": index, "total": len(paths)}
+            return tuple(hit["pos"])
     return None
 
 

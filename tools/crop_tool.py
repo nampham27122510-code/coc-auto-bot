@@ -7,6 +7,9 @@ Cách dùng:
     python tools/crop_tool.py
 
 Quy trình:
+    0. Mục 22 (ANOMALY_BUTTONS): ảnh nút xử lý LUỒNG LẠ (popup sự kiện / bảo trì, nút X, Hủy, Xác nhận...).
+       Mỗi lần lưu tạo file mới assets/anomaly/anomaly_btn_1.png, anomaly_btn_2.png ... (không bao giờ ghi đè)
+       và tự cập nhật config.json -> ANOMALY_BUTTON_IMAGES; cắt bao nhiêu ảnh tùy ý, không cần sửa code.
     1. Bấm "Chụp màn hình Game" để lấy ảnh mới nhất từ LDPlayer 9 qua ADB.
     2. Kéo giữ chuột trái trên ảnh để khoanh vùng (khung xanh lá).
     3. Chọn tên Tiếng Việt tương ứng trong danh sách.
@@ -14,8 +17,12 @@ Quy trình:
        - Nhãn ảnh mẫu (nút bấm...)  -> lưu file PNG vào thư mục assets/.
          Mỗi nhãn có thể có NHIỀU ảnh biến thể: nếu file mặc định (vd button_return_home.png) đã
          tồn tại, công cụ đề xuất lưu thành button_return_home_2.png, _3.png... (bot tự nạp hết).
-         (Tường: 4 ảnh dòng đề xuất wall_item_lvA/lvB_gold/elixir.png; các nút Nâng/Xác nhận
-          của Tường nay bấm bằng tọa độ thủ công chọn trên giao diện chính)
+         (Tường: 4 nhóm ảnh dòng đề xuất = {Làng chính, Làng phụ} x {Vàng, Dầu}:
+          wall_item_main_gold / main_elixir / sub_gold / sub_elixir. KHÔNG còn chia cấp A/B:
+          bạn tự do chọn cấp Tường bất kỳ (ô "Cấp Tường", bắt buộc khi lưu Tường) và chụp BAO NHIÊU ẢNH tùy ý cho
+          mỗi nhóm; MỖI CẤP phải có đủ cặp thẻ Vàng + thẻ Dầu (công cụ cảnh báo cấp nào thiếu cặp) - mỗi lần lưu luôn tạo file mới (vd wall_item_main_gold_lv12.png, _lv12_2.png ...),
+          không bao giờ ghi đè; bot nạp hết và chấm điểm nhận diện trên toàn bộ ảnh của nhóm.
+          Các nút Nâng/Xác nhận của Tường vẫn bấm bằng tọa độ thủ công chọn trên giao diện chính)
        - Nhãn ROI đọc OCR (tài nguyên) -> lưu toạ độ [x1, y1, x2, y2] vào
          config.json ở thư mục gốc dự án (khóa cấp cao nhất, cùng chỗ config.py đọc):
              {"screen_size": [960, 540],
@@ -30,6 +37,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tkinter as tk
@@ -76,10 +84,11 @@ LABEL_TO_FILENAME = {
     "10. Nút Về nhà (Màn hình kết thúc trận đấu)": "button_return_home.png",
 
     # --- DÒNG ĐỀ XUẤT TƯỜNG trong menu Búa (nút nâng/xác nhận nay bấm bằng tọa độ thủ công) ---
-    "11. Tường Cấp A - Dòng đề xuất, nút Vàng SÁNG (Đủ Vàng)": "wall_item_lvA_gold.png",
-    "12. Tường Cấp A - Dòng đề xuất, nút Dầu SÁNG (Đủ Dầu)": "wall_item_lvA_elixir.png",
-    "13. Tường Cấp B - Dòng đề xuất, nút Vàng SÁNG (Đủ Vàng)": "wall_item_lvB_gold.png",
-    "14. Tường Cấp B - Dòng đề xuất, nút Dầu SÁNG (Đủ Dầu)": "wall_item_lvB_elixir.png",
+    # Không phân cấp A/B: cấp Tường tự do, mỗi nhóm chụp nhiều ảnh (mọi cấp, mọi trạng thái) để bot chấm điểm.
+    "11. Tường LÀNG CHÍNH - Dòng đề xuất, nút Vàng SÁNG (Đủ Vàng) - nhiều ảnh": "wall_item_main_gold.png",
+    "12. Tường LÀNG CHÍNH - Dòng đề xuất, nút Dầu SÁNG (Đủ Dầu) - nhiều ảnh": "wall_item_main_elixir.png",
+    "13. Tường LÀNG PHỤ - Dòng đề xuất, nút Vàng SÁNG (Đủ Vàng) - nhiều ảnh": "wall_item_sub_gold.png",
+    "14. Tường LÀNG PHỤ - Dòng đề xuất, nút Dầu SÁNG (Đủ Dầu) - nhiều ảnh": "wall_item_sub_elixir.png",
 
     # --- Trong trận đấu ---
     "15. Nút Tăng tốc trận đấu (Góc dưới trận đấu)": "button_boost.png",
@@ -93,6 +102,28 @@ LABEL_TO_FILENAME = {
     "19. Vùng ROI nút Next (Soi nhà - Góc dưới phải, khoanh SÁT nút + chừa lề nhỏ)": "NEXT_BTN_ROI",
     "20. Vùng ROI nút Đầu hàng (Trong trận - Góc dưới trái)": "SURRENDER_BTN_ROI",
     "21. Vùng ROI nút Xác nhận đầu hàng (Popup giữa màn hình)": "CONFIRM_SURRENDER_ROI",
+
+    # --- Luồng lạ: popup sự kiện / bảo trì / màn hình chờ không xác định (cắt BAO NHIÊU ẢNH CŨNG ĐƯỢC) ---
+    "22. Nút xử lý luồng lạ (X đóng / Hủy / Xác nhận popup lạ) - nhiều ảnh": "ANOMALY_BUTTONS",
+
+    # --- LÀNG PHỤ (Làng thợ xây): tên file KHÔNG bắt đầu bằng button_attack / confirm_... của làng chính
+    #     để wildcard stem*.png của 2 làng không nạp lẫn ảnh của nhau. Mỗi nút lưu được NHIỀU ảnh biến thể. ---
+    "23. Nút Tấn công - LÀNG PHỤ (Làng thợ xây)": "builder_attack_btn.png",
+    "24. Nút Xác nhận tấn công - LÀNG PHỤ (popup xác nhận)": "builder_confirm_attack_btn.png",
+    "25. Nút Nhận thưởng - LÀNG PHỤ (Làng thợ xây)": "builder_claim_reward_btn.png",
+    "26. Nút Xác nhận nhận thưởng - LÀNG PHỤ (popup xác nhận)": "builder_confirm_reward_btn.png",
+
+    # --- THUYỀN ở Làng chính (bấm để sang Làng thợ xây). Cắt NHIỀU ảnh khi làng đã zoom out xa nhất (giống lúc bot tìm):
+    #     nhiều góc / nhiều khung hoạt ảnh nước. Lưu thành boat_to_builder.png, _2, _3... (bot tự nạp hết). ---
+    "27. Thuyền sang Làng thợ xây (Làng chính, zoom out xa nhất) - nhiều ảnh": "boat_to_builder.png",
+
+    # --- THUYỀN ở Làng thợ xây (bấm để VỀ Làng chính khi đang farm Làng chính mà game đứng ở Làng phụ). Cũng cắt NHIỀU ảnh
+    #     khi làng đã zoom out xa nhất. Lưu thành boat_to_main.png, _2, _3... (bot tự nạp hết). ---
+    "28. Thuyền về Làng chính (Làng thợ xây, zoom out xa nhất) - nhiều ảnh": "boat_to_main.png",
+
+    # --- LÀNG PHỤ - LƯỢT 2: màn đếm ngược trước mỗi lượt tấn công. CHỈ cắt phần CHỮ 'Trận chiến bắt đầu trong vòng:'
+    #     (KHÔNG cắt số giây vì số đổi liên tục). Bot dùng ảnh này để biết lượt 2 đã bắt đầu và thả quân lại. ---
+    "29. Chữ 'Trận chiến bắt đầu trong vòng' - LÀNG PHỤ lượt 2 (chỉ cắt CHỮ, không cắt số giây)": "builder_round_start.png",
 }
 
 # Ảnh mẫu nút bấm đồng thời cập nhật toạ độ bấm (tâm vùng khoanh) vào config.json
@@ -106,9 +137,70 @@ CLICK_POS_KEYS = {
 MANUAL_POS_KEYS = {"RELOAD_GAME_POS"}
 
 
+# Danh mục đặc biệt: nhiều ảnh nút xử lý luồng lạ, lưu vào assets/anomaly/ với tên tăng dần.
+ANOMALY_KEY = "ANOMALY_BUTTONS"
+ANOMALY_DIR_NAME = "anomaly"                      # khớp config.py -> ANOMALY_ASSET_DIR
+ANOMALY_DIR = ASSETS_DIR / ANOMALY_DIR_NAME
+ANOMALY_FILE_RE = re.compile(r"^anomaly_btn_(\d+)\.png$", re.IGNORECASE)
+ANOMALY_CONFIG_DEFAULTS = {                       # khớp JSON_CONFIG_DEFAULTS của config.py (chỉ bổ sung khóa còn thiếu)
+    "ANOMALY_MATCH_THRESHOLD": 0.85,
+    "ANOMALY_SCAN_RETRIES": 2,
+    "ANOMALY_SETTLE_SECONDS": 1.5,
+}
+
+
+def is_anomaly(target: str) -> bool:
+    """Nhãn ANOMALY_BUTTONS (nhiều ảnh nút xử lý luồng lạ, không phải ROI cũng không phải 1 file cố định)."""
+    return target == ANOMALY_KEY
+
+
 def is_roi(target: str) -> bool:
-    """Giá trị không kết thúc bằng .png là khoá ROI (lưu toạ độ, không lưu ảnh)."""
-    return not target.lower().endswith(".png")
+    """Giá trị không kết thúc bằng .png (và không phải ANOMALY_BUTTONS) là khoá ROI (lưu toạ độ, không lưu ảnh)."""
+    return (not target.lower().endswith(".png")) and not is_anomaly(target)
+
+
+def _anomaly_number(name: str) -> int:
+    m = ANOMALY_FILE_RE.match(name)
+    return int(m.group(1)) if m else -1
+
+
+def list_anomaly_files() -> List[str]:
+    """Tên các file anomaly_btn_N.png trong assets/anomaly/, sắp theo N tăng dần; thư mục chưa có -> []."""
+    try:
+        names = [n for n in os.listdir(ANOMALY_DIR) if ANOMALY_FILE_RE.match(n)]
+    except OSError:
+        return []
+    return sorted(names, key=_anomaly_number)
+
+
+def next_anomaly_filename() -> str:
+    """anomaly_btn_(N+1).png với N = số lớn nhất đang có (xóa bớt ảnh giữa chừng cũng không trùng / ghi đè ảnh cũ)."""
+    nums = [_anomaly_number(n) for n in list_anomaly_files()]
+    return f"anomaly_btn_{(max(nums) if nums else 0) + 1}.png"
+
+
+def sync_anomaly_config() -> List[str]:
+    """
+    Cập nhật config.json -> ANOMALY_BUTTON_IMAGES theo các file đang có trong assets/anomaly/ (dạng 'anomaly/anomaly_btn_N.png').
+    Giữ lại các đường dẫn khác người dùng tự thêm tay (không nằm trong anomaly/); bổ sung ngưỡng / số lần quét lại nếu thiếu.
+    Trả về danh sách đã ghi.
+    """
+    cfg = load_config()
+    prefix = ANOMALY_DIR_NAME + "/"
+    mine = [prefix + n for n in list_anomaly_files()]
+    old = cfg.get("ANOMALY_BUTTON_IMAGES")
+    extras = []
+    if isinstance(old, list):
+        for item in old:
+            if isinstance(item, str) and item.strip():
+                norm = item.strip().replace("\\", "/")
+                if not norm.lower().startswith(prefix) and norm not in extras:
+                    extras.append(norm)
+    cfg["ANOMALY_BUTTON_IMAGES"] = mine + extras
+    for key, value in ANOMALY_CONFIG_DEFAULTS.items():
+        cfg.setdefault(key, value)
+    save_config(cfg)
+    return cfg["ANOMALY_BUTTON_IMAGES"]
 
 
 ROI_KEYS = [v for v in LABEL_TO_FILENAME.values() if is_roi(v)]
@@ -120,7 +212,7 @@ NO_VARIANT_FILES = {"builder_region.png"}
 
 def supports_variants(filename: str) -> bool:
     """Nhãn ảnh mẫu (.png) có hỗ trợ lưu nhiều ảnh biến thể không."""
-    return (not is_roi(filename)) and filename not in NO_VARIANT_FILES
+    return (not is_roi(filename)) and not is_anomaly(filename) and filename not in NO_VARIANT_FILES
 
 
 def list_template_files(filename: str) -> List[str]:
@@ -152,6 +244,87 @@ def next_variant_filename(filename: str) -> str:
     while (ASSETS_DIR / f"{stem}_{n}{ext}").exists():
         n += 1
     return f"{stem}_{n}{ext}"
+
+
+# --- Ảnh dòng đề xuất TƯỜNG: 2 loại tường (làng chính / làng phụ) x 2 tài nguyên (Vàng / Dầu) ---
+# Không phân cấp A/B. Cấp Tường tùy ý (chỉ là nhãn trong tên file); mỗi nhóm lưu được nhiều ảnh.
+WALL_ITEM_FILES = {
+    "wall_item_main_gold.png", "wall_item_main_elixir.png",
+    "wall_item_sub_gold.png", "wall_item_sub_elixir.png",
+}
+WALL_LEVEL_RE = re.compile(r"_lv(\d+)", re.IGNORECASE)
+
+
+def is_wall_item(filename: str) -> bool:
+    """Nhãn ảnh dòng đề xuất Tường (làng chính / làng phụ x Vàng / Dầu) - lưu nhiều ảnh, không ghi đè."""
+    return filename in WALL_ITEM_FILES
+
+
+def sanitize_wall_level(text: str) -> str:
+    """Cấp Tường người dùng nhập: SỐ NGUYÊN BẤT KỲ (kể cả 0, không giới hạn độ dài) -> chỉ giữ chữ số,
+    bỏ số 0 thừa ở đầu ('007' -> '7', '000' -> '0'); không có chữ số nào -> '' (chưa nhập)."""
+    digits = re.sub(r"\D", "", text or "")
+    if not digits:
+        return ""
+    return digits.lstrip("0") or "0"
+
+
+def next_wall_filename(filename: str, level: str = "") -> str:
+    """
+    Tên file mới còn trống cho 1 ảnh Tường (KHÔNG BAO GIỜ trùng tên ảnh cũ):
+      không cấp : wall_item_main_gold.png, wall_item_main_gold_2.png, _3 ...
+      có cấp 12 : wall_item_main_gold_lv12.png, wall_item_main_gold_lv12_2.png ...
+    Mọi tên đều khớp wildcard wall_item_main_gold*.png mà bot nạp.
+    """
+    stem, ext = os.path.splitext(filename)
+    base = f"{stem}_lv{level}" if level else stem
+    candidate = f"{base}{ext}"
+    n = 2
+    while (ASSETS_DIR / candidate).exists():
+        candidate = f"{base}_{n}{ext}"
+        n += 1
+    return candidate
+
+
+def wall_level_summary(filename: str) -> str:
+    """Tóm tắt các cấp đã có ảnh của 1 nhóm Tường, vd 'lv12 x2, lv13, chưa gắn cấp x1'."""
+    counts: dict = {}
+    for name in list_template_files(filename):
+        m = WALL_LEVEL_RE.search(name[len(os.path.splitext(filename)[0]):])
+        key = int(m.group(1)) if m else None      # None = ảnh chưa gắn cấp
+        counts[key] = counts.get(key, 0) + 1
+    parts = []
+    for key in sorted(counts, key=lambda k: (k is None, k if k is not None else 0)):
+        label = f"lv{key}" if key is not None else "chưa gắn cấp"
+        parts.append(label if counts[key] == 1 else f"{label} x{counts[key]}")
+    return ", ".join(parts)
+
+
+def wall_levels(filename: str) -> set:
+    """Các cấp Tường (số nguyên bất kỳ, kể cả 0) đã có ảnh trong nhóm này (bỏ qua ảnh chưa gắn cấp)."""
+    stem = os.path.splitext(filename)[0]
+    levels = set()
+    for name in list_template_files(filename):
+        m = WALL_LEVEL_RE.search(name[len(stem):])
+        if m:
+            levels.add(int(m.group(1)))
+    return levels
+
+
+def wall_counterpart(filename: str) -> str:
+    """Thẻ còn lại của cùng loại Tường: main_gold <-> main_elixir, sub_gold <-> sub_elixir."""
+    if "_gold" in filename:
+        return filename.replace("_gold", "_elixir")
+    return filename.replace("_elixir", "_gold")
+
+
+def wall_resource_vi(filename: str) -> str:
+    return "Vàng" if "_gold" in filename else "Dầu"
+
+
+def wall_missing_pair_levels(filename: str) -> List[int]:
+    """Các cấp đã có ảnh ở nhóm này nhưng CHƯA có ảnh ở thẻ còn lại (Vàng <-> Dầu) -> thiếu cặp."""
+    return sorted(wall_levels(filename) - wall_levels(wall_counterpart(filename)))
 
 
 def normalize_to_bot_size(img: np.ndarray) -> Tuple[np.ndarray, str]:
@@ -431,62 +604,94 @@ class CropToolApp(tk.Tk):
             0, 0, text="Bấm \"Chụp màn hình Game\" để bắt đầu",
             fill=MUTED, font=("Segoe UI", 14), tags="hint")
 
-        # Khung bên phải: điều khiển
-        right = ttk.Frame(self, style="Panel.TFrame", padding=16)
-        right.pack(side=tk.RIGHT, fill=tk.Y, padx=(7, 14), pady=14)
+        # Khung bên phải: nút Lưu + thông báo GHIM cố định ở đáy (luôn thấy); phần còn lại cuộn được
+        outer = ttk.Frame(self, style="Panel.TFrame", padding=(14, 14, 6, 14))
+        outer.pack(side=tk.RIGHT, fill=tk.Y, padx=(7, 14), pady=14)
+
+        self.msg_var = tk.StringVar(value="Sẵn sàng.")
+        self.msg_label = tk.Label(outer, textvariable=self.msg_var, bg=PANEL, fg=MUTED,
+                                  wraplength=400, justify="left", anchor="w")
+        self.msg_label.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
+
+        self.save_btn = ttk.Button(outer, text="✔  Xác nhận & Lưu vào Dự án",
+                                   style="Accent.TButton", command=self.save_crop)
+        self.save_btn.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0), padx=(0, 8))
+
+        scroll_canvas = tk.Canvas(outer, bg=PANEL, highlightthickness=0, bd=0, width=440)
+        vscroll = ttk.Scrollbar(outer, orient="vertical", command=scroll_canvas.yview)
+        scroll_canvas.configure(yscrollcommand=vscroll.set)
+        vscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        right = tk.Frame(scroll_canvas, bg=PANEL)
+        win_id = scroll_canvas.create_window((0, 0), window=right, anchor="nw")
+        right.bind("<Configure>", lambda _e: scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all")))
+        scroll_canvas.bind("<Configure>", lambda e: scroll_canvas.itemconfigure(win_id, width=e.width))
+
+        def _wheel(event) -> None:
+            scroll_canvas.yview_scroll(int(-event.delta / 120), "units")
+        scroll_canvas.bind("<Enter>", lambda _e: scroll_canvas.bind_all("<MouseWheel>", _wheel))
+        scroll_canvas.bind("<Leave>", lambda _e: scroll_canvas.unbind_all("<MouseWheel>"))
 
         ttk.Label(right, text="THIẾT LẬP ẢNH MẪU", style="Title.TLabel").pack(anchor="w")
         ttk.Label(right, text="Chỉ cần làm 1 lần duy nhất", style="Muted.TLabel").pack(
-            anchor="w", pady=(0, 14))
+            anchor="w", pady=(0, 10))
 
         ttk.Button(right, text="📷  Chụp màn hình Game", style="Blue.TButton",
-                   command=self.capture_screen).pack(fill=tk.X)
+                   command=self.capture_screen).pack(fill=tk.X, padx=(0, 8))
         ttk.Button(right, text="📂  Mở ảnh từ máy (dự phòng)", style="Ghost.TButton",
-                   command=self.open_image_file).pack(fill=tk.X, pady=(6, 0))
+                   command=self.open_image_file).pack(fill=tk.X, pady=(6, 0), padx=(0, 8))
 
-        ttk.Separator(right).pack(fill=tk.X, pady=14)
+        ttk.Separator(right).pack(fill=tk.X, pady=10, padx=(0, 8))
 
         ttk.Label(right, text="Chọn thành phần cần lưu:").pack(anchor="w")
         self.label_var = tk.StringVar(value=list(LABEL_TO_FILENAME.keys())[0])
         self.combo = ttk.Combobox(right, textvariable=self.label_var, state="readonly",
-                                  values=list(LABEL_TO_FILENAME.keys()), width=56)
-        self.combo.pack(fill=tk.X, pady=(4, 0))
+                                  values=list(LABEL_TO_FILENAME.keys()), width=50)
+        self.combo.pack(fill=tk.X, pady=(4, 0), padx=(0, 8))
         self.combo.bind("<<ComboboxSelected>>", lambda _e: self._update_filename_hint())
 
+        # Cấp Tường: SỐ NGUYÊN BẤT KỲ (không cố định), chỉ áp dụng cho các nhãn Tường (dòng đề xuất)
+        self.level_var = tk.StringVar(value="")
+        level_row = tk.Frame(right, bg=PANEL)
+        level_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(level_row, text="Cấp Tường (số bất kỳ):").pack(side=tk.LEFT)
+        self.level_entry = tk.Entry(level_row, textvariable=self.level_var, width=8,
+                                    bg="#33364a", fg=FG, insertbackground=FG,
+                                    relief="flat", justify="center")
+        self.level_entry.pack(side=tk.LEFT, padx=(8, 0), ipady=3)
+        self.level_var.trace_add("write", lambda *_a: self._update_filename_hint())
+
         self.filename_var = tk.StringVar()
-        ttk.Label(right, textvariable=self.filename_var, style="Muted.TLabel").pack(
-            anchor="w", pady=(4, 12))
-        self._update_filename_hint()
+        ttk.Label(right, textvariable=self.filename_var, style="Muted.TLabel",
+                  wraplength=410, justify="left").pack(anchor="w", pady=(4, 8))
 
         # Thông tin khung chọn
         self.scale_var = tk.StringVar(value="")
-        ttk.Label(right, textvariable=self.scale_var, style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(right, textvariable=self.scale_var, style="Muted.TLabel",
+                  wraplength=410, justify="left").pack(anchor="w")
         self.sel_var = tk.StringVar(value="Chưa khoanh vùng")
         ttk.Label(right, text="Vùng đang chọn:").pack(anchor="w")
         ttk.Label(right, textvariable=self.sel_var, foreground=ACCENT,
-                  font=("Consolas", 10, "bold")).pack(anchor="w", pady=(2, 10))
+                  font=("Consolas", 10, "bold")).pack(anchor="w", pady=(2, 8))
 
         # Xem trước
         ttk.Label(right, text="Xem trước ảnh cắt (Preview Crop - cắt từ ẢNH GỐC):").pack(anchor="w")
         self.preview = tk.Label(right, bg="#0f1015", width=34, height=7,
                                 text="(trống)", fg=MUTED)
-        self.preview.pack(fill=tk.X, pady=(4, 4))
+        self.preview.pack(fill=tk.X, pady=(4, 4), padx=(0, 8))
         self.preview_photo: Optional[ImageTk.PhotoImage] = None
         self.preview_info = tk.Label(right, text="", bg=PANEL, fg=MUTED, anchor="w",
                                      justify="left", font=("Consolas", 9))
         self.preview_info.pack(fill=tk.X)
+        # Ô xác nhận Preview CHỈ hiện khi lưu ROI tài nguyên (xem _toggle_roi_check)
         self.chk_preview = tk.Checkbutton(
             right, text="Đã thấy trọn 3 dòng (Vàng, Dầu, Dầu đen) - cho ROI tài nguyên",
             variable=self.var_preview_ok, bg=PANEL, fg=FG, selectcolor="#33364a",
             activebackground=PANEL, activeforeground=FG, anchor="w", justify="left",
-            wraplength=330)
-        self.chk_preview.pack(fill=tk.X, pady=(4, 10))
+            wraplength=400)
+        self._chk_shown = False
 
-        self.save_btn = ttk.Button(right, text="✔  Xác nhận & Lưu vào Dự án",
-                                   style="Accent.TButton", command=self.save_crop)
-        self.save_btn.pack(fill=tk.X)
-
-        ttk.Separator(right).pack(fill=tk.X, pady=14)
+        ttk.Separator(right).pack(fill=tk.X, pady=10, padx=(0, 8))
 
         ttk.Label(right, text="Trạng thái thiết lập (assets/ & config.json):").pack(anchor="w")
         self.status_frame = tk.Frame(right, bg=PANEL)
@@ -498,18 +703,53 @@ class CropToolApp(tk.Tk):
             lbl.pack(fill=tk.X)
             self.status_labels[label] = lbl
 
-        self.msg_var = tk.StringVar(value="Sẵn sàng.")
-        self.msg_label = tk.Label(right, textvariable=self.msg_var, bg=PANEL, fg=MUTED,
-                                  wraplength=330, justify="left", anchor="w")
-        self.msg_label.pack(fill=tk.X, side=tk.BOTTOM, pady=(12, 0))
+        self._update_filename_hint()   # áp dụng hiện/ẩn ô xác nhận Preview theo nhãn đang chọn
+
+    def _toggle_roi_check(self, fname: str) -> None:
+        """Chỉ hiện ô tick xác nhận Preview khi nhãn đang chọn là ROI tài nguyên (đỡ chiếm chỗ)."""
+        chk = getattr(self, "chk_preview", None)
+        if chk is None:
+            return
+        want = is_roi(fname)
+        if want and not self._chk_shown:
+            chk.pack(fill=tk.X, pady=(4, 4), after=self.preview_info)
+            self._chk_shown = True
+        elif not want and self._chk_shown:
+            chk.pack_forget()
+            self._chk_shown = False
 
     # ---------------------------------------------------------- Tiện ích UI -- #
     def _update_filename_hint(self) -> None:
         fname = LABEL_TO_FILENAME[self.label_var.get()]
+        self._toggle_roi_check(fname)
+        if is_anomaly(fname):
+            self.filename_var.set(
+                f"→ Đã có {len(list_anomaly_files())} ảnh nút luồng lạ. Lần lưu này tạo ảnh mới:\n"
+                f"   assets/{ANOMALY_DIR_NAME}/{next_anomaly_filename()}\n"
+                "   (không ghi đè ảnh cũ; tự cập nhật ANOMALY_BUTTON_IMAGES trong config.json)")
+            return
         if is_roi(fname):
             self.filename_var.set(
                 f"→ Sẽ lưu toạ độ vào config.json  [{fname}]\n"
                 "   Mẹo: khoanh sát phần chữ số, tránh đè lên biểu tượng Vàng/Dầu.")
+            return
+        if is_wall_item(fname):
+            level = sanitize_wall_level(self.level_var.get())
+            n = count_variants(fname)
+            lines = [f"→ Đã có {n} ảnh cho nhóm này"
+                     + (f" ({wall_level_summary(fname)})" if n else "") + "."]
+            if level:
+                lines.append(f"   Lần lưu này tạo ảnh MỚI: assets/{next_wall_filename(fname, level)}")
+                if level and int(level) not in wall_levels(wall_counterpart(fname)):
+                    lines.append(f"   ⚠ Cấp {level} chưa có thẻ {wall_resource_vi(wall_counterpart(fname))} - nhớ chụp cặp.")
+            else:
+                lines.append("   ⚠ Nhập Cấp Tường (số bất kỳ) vào ô phía trên trước khi lưu.")
+            lines.append("   ℹ Chỉ cắt thẻ ĐỦ tài nguyên (chữ giá trắng); giá khác nhau không ảnh hưởng.")
+            missing = wall_missing_pair_levels(fname)
+            if missing:
+                lines.append(f"   ⚠ Thiếu thẻ {wall_resource_vi(wall_counterpart(fname))} ở cấp: "
+                             + ", ".join(str(v) for v in missing))
+            self.filename_var.set("\n".join(lines))
             return
         target = fname
         lines = []
@@ -534,8 +774,21 @@ class CropToolApp(tk.Tk):
             cfg = {}
         for label, fname in LABEL_TO_FILENAME.items():
             extra = ""
-            if is_roi(fname):
+            if is_anomaly(fname):
+                n = len(list_anomaly_files())
+                done = n > 0
+                extra = f" [{n} ảnh]" if n else ""
+            elif is_roi(fname):
                 done = get_saved_roi(cfg, fname) is not None
+            elif is_wall_item(fname):
+                n = count_variants(fname)
+                done = n > 0
+                extra = f" [{n} ảnh: {wall_level_summary(fname)}]" if n else ""
+                missing = wall_missing_pair_levels(fname)
+                if missing:
+                    extra += (f" ⚠ thiếu thẻ {wall_resource_vi(wall_counterpart(fname))} ở cấp "
+                              + ", ".join(str(v) for v in missing))
+                    done = False
             elif supports_variants(fname):
                 n = count_variants(fname)
                 done = n > 0
@@ -740,8 +993,16 @@ class CropToolApp(tk.Tk):
             messagebox.showerror("Lỗi", "Nhãn không hợp lệ.")
             return
 
+        if is_anomaly(filename):
+            self._save_anomaly(label)
+            return
+
         if is_roi(filename):
             self._save_roi(label, filename)
+            return
+
+        if is_wall_item(filename):
+            self._save_wall_item(label, filename)
             return
 
         x1, y1, x2, y2 = self.selection
@@ -820,6 +1081,95 @@ class CropToolApp(tk.Tk):
             self._clear_selection()
         else:
             self._advance_label()
+
+    def _save_wall_item(self, label: str, filename: str) -> None:
+        """
+        Lưu 1 ảnh dòng đề xuất Tường (làng chính / làng phụ x Vàng / Dầu) thành file MỚI, không ghi đè.
+        Cấp Tường (nếu nhập) chỉ gắn vào tên file (_lv12) cho dễ quản lý; bot không phụ thuộc cấp.
+        """
+        x1, y1, x2, y2 = self.selection
+        crop = self.image_bgr[y1:y2, x1:x2]
+        if crop.size == 0:
+            messagebox.showerror("Lỗi", "Vùng cắt rỗng, hãy khoanh lại.")
+            return
+
+        raw_level = self.level_var.get().strip()
+        level = sanitize_wall_level(raw_level)
+        if not level:
+            messagebox.showwarning("Thiếu Cấp Tường",
+                                   "Hãy nhập Cấp Tường là một số bất kỳ (vd 12) vào ô 'Cấp Tường'.\n"
+                                   "Mỗi cấp cần đủ cặp thẻ Vàng + thẻ Dầu nên cấp là bắt buộc.")
+            return
+
+        save_name = next_wall_filename(filename, level)
+        target = ASSETS_DIR / save_name
+        try:
+            ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+            ok, buf = cv2.imencode(".png", crop)
+            if not ok:
+                raise RuntimeError("Không mã hoá được ảnh PNG.")
+            buf.tofile(str(target))  # an toàn với đường dẫn Unicode trên Windows
+        except Exception as exc:  # noqa: BLE001
+            self._set_message("Lưu thất bại.", DANGER)
+            messagebox.showerror("Lỗi khi lưu", f"Không thể lưu file:\n{exc}")
+            return
+
+        name_vi = label.split(". ", 1)[-1]
+        total = count_variants(filename)
+        self._set_message(f"Đã lưu {save_name} (nhóm này có {total} ảnh).", ACCENT)
+        messagebox.showinfo("Thành công",
+                            f"Lưu thành công {name_vi}!\n\nassets/{save_name}\n"
+                            f"Nhóm này hiện có {total} ảnh ({wall_level_summary(filename)}).")
+        self._refresh_asset_status()
+        self._clear_selection()
+        # Cấp này chưa có thẻ còn lại (Vàng <-> Dầu) -> tự chuyển sang nhãn đó, giữ nguyên cấp để chụp cặp
+        other = wall_counterpart(filename)
+        if int(level) not in wall_levels(other):
+            for lb, fn in LABEL_TO_FILENAME.items():
+                if fn == other:
+                    self.label_var.set(lb)
+                    self._set_message(
+                        f"Đã lưu {save_name}. Giờ chụp thẻ {wall_resource_vi(other)} cho cấp {level} "
+                        f"({lb.split('. ', 1)[-1]}).", ACCENT)
+                    break
+        self._update_filename_hint()
+
+    def _save_anomaly(self, label: str) -> None:
+        """Lưu ảnh nút luồng lạ thành assets/anomaly/anomaly_btn_N.png (N tăng dần) rồi đồng bộ config.json."""
+        x1, y1, x2, y2 = self.selection
+        crop = self.image_bgr[y1:y2, x1:x2]
+        if crop.size == 0:
+            messagebox.showerror("Lỗi", "Vùng cắt rỗng, hãy khoanh lại.")
+            return
+
+        save_name = next_anomaly_filename()
+        target = ANOMALY_DIR / save_name
+        try:
+            ANOMALY_DIR.mkdir(parents=True, exist_ok=True)
+            ok, buf = cv2.imencode(".png", crop)
+            if not ok:
+                raise RuntimeError("Không mã hoá được ảnh PNG.")
+            buf.tofile(str(target))  # an toàn với đường dẫn Unicode trên Windows
+        except Exception as exc:  # noqa: BLE001
+            self._set_message("Lưu thất bại.", DANGER)
+            messagebox.showerror("Lỗi khi lưu", f"Không thể lưu file:\n{exc}")
+            return
+
+        cfg_note = ""
+        try:
+            listed = sync_anomaly_config()
+            cfg_note = f"\n\nconfig.json → ANOMALY_BUTTON_IMAGES: {len(listed)} ảnh"
+        except Exception as exc:  # noqa: BLE001
+            cfg_note = (f"\n\n⚠️ Đã lưu ảnh nhưng KHÔNG cập nhật được ANOMALY_BUTTON_IMAGES "
+                        f"trong config.json: {exc}\n(bot vẫn tự quét thư mục assets/anomaly/ khi danh sách trống)")
+
+        name_vi = label.split(". ", 1)[-1]
+        self._set_message(f"Đã lưu {save_name} (tổng {len(list_anomaly_files())} ảnh nút luồng lạ).", ACCENT)
+        messagebox.showinfo("Thành công",
+                            f"Lưu thành công {name_vi}!\n\nassets/{ANOMALY_DIR_NAME}/{save_name}{cfg_note}")
+        self._refresh_asset_status()
+        self._update_filename_hint()
+        self._clear_selection()   # giữ nguyên nhãn để cắt tiếp ảnh kế
 
     def _save_roi(self, label: str, key: str) -> None:
         """Lưu toạ độ ROI [x1, y1, x2, y2] (pixel ảnh gốc) vào config.json."""

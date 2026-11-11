@@ -4,3 +4,5 @@ opencv-python
 numpy
 pytesseract
 Pillow
+cryptography
+requests

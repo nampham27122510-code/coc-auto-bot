@@ -14,6 +14,11 @@ Lớp BotLogic đảm nhiệm các nhiệm vụ chính trong vòng lặp chính 
   4) check_and_search_match()   : Chiến đấu -> Tìm trận 1700 -> Tấn công! -> soi nhà địch -> thả quân / Next.
   5) execute_deployment()       : Thả HẾT lính & phép (DEPLOY_SEQUENCE -> scan_battle_bar -> thẻ thủ công),
                                   chờ trận, quét button_return_home*.png / nút xanh HSV -> Về nhà.
+  6) check_and_search_builder() : LÀNG PHỤ (Làng thợ xây), bật bằng config.json -> FARM_VILLAGE = "builder":
+                                  Tấn công -> Xác nhận -> thả quân -> chờ Tăng tốc -> Về làng -> lặp lại,
+                                  KHÔNG soi tài nguyên, KHÔNG nâng Tường, KHÔNG zoom.
+                                  Đang ở Làng chính (thấy nút Chiến đấu, không thấy nút Tấn công làng phụ) -> tự zoom out,
+                                  lướt bản đồ tìm THUYỀN (boat_to_builder*.png) rồi bấm để sang Làng thợ xây.
 
 Cấu hình động (ROI, bật/tắt xả tường, ngưỡng Vàng/Dầu) được đọc từ config.json
 thông qua config.load_json_config(); các hằng số tọa độ nằm trong config.py.
@@ -67,22 +72,22 @@ from config import (
     load_json_config,
 )
 
-# --- Popup nâng Tường theo từng cấp ---
-# Ảnh mẫu cắt bằng tools/crop_tool.py (mục 12-21). Nút SÁNG = đủ tài nguyên; nút TỐI
+# --- Popup nâng Tường (làng chính / làng phụ, KHÔNG phân cấp A/B) ---
+# Ảnh mẫu cắt bằng tools/crop_tool.py (mục 11-14, mỗi nhóm nhiều ảnh, cấp Tường tùy ý). Nút SÁNG = đủ tài nguyên; nút TỐI
 # (thiếu tài nguyên, chữ đỏ) không khớp ảnh mẫu -> chính điều đó cho biết không đủ.
 # Thứ tự trong danh sách = thứ tự ưu tiên quét dòng Tường trong menu đề xuất.
 # (tên, ảnh mẫu, loại tài nguyên) - loại tài nguyên quyết định bấm nút Nâng bằng Vàng hay bằng Dầu
 WALL_ITEM_TEMPLATES = [
-    ("Tường Cấp A - Vàng", "wall_item_lvA_gold.png",   "gold"),
-    ("Tường Cấp A - Dầu",  "wall_item_lvA_elixir.png", "elixir"),
-    ("Tường Cấp B - Vàng", "wall_item_lvB_gold.png",   "gold"),
-    ("Tường Cấp B - Dầu",  "wall_item_lvB_elixir.png", "elixir"),
+    ("Tường làng chính - Vàng", "wall_item_main_gold.png",   "gold"),
+    ("Tường làng chính - Dầu",  "wall_item_main_elixir.png", "elixir"),
+    ("Tường làng phụ - Vàng",   "wall_item_sub_gold.png",    "gold"),
+    ("Tường làng phụ - Dầu",    "wall_item_sub_elixir.png",  "elixir"),
 ]
 WALL_ITEM_THRESHOLD = 0.75   # ngưỡng khớp dòng Tường trong menu đề xuất
 WALL_ITEM_LEFT_RATIO = 0.42    # phần TRÁI ảnh mẫu dùng để nhận ra dòng Tường (icon + tên)
-WALL_ITEM_RIGHT_RATIO = 0.30   # phần PHẢI dùng để nhận ra loại tài nguyên + đủ/thiếu (giá + icon)
-                               # phần GIỮA (số lượng "xN", thay đổi sau mỗi lần nâng) bị bỏ qua
-WALL_RIGHT_TOL = 8             # cho phép phần phải lệch tối đa ngần này px so với vị trí kỳ vọng
+                               # Phần GIỮA (xN) và phần PHẢI (GIÁ) KHÔNG so khớp ảnh: giá nâng cùng cấp khác nhau giữa
+                               # làng chính / làng phụ. Loại tài nguyên + đủ/thiếu chỉ xét bằng icon + MÀU chữ giá
+                               # (trắng = đủ, đỏ = thiếu) qua ImageProcessor._analyze_wall_right.
 WALL_ROW_CANDIDATES = 4        # số vị trí dòng tối đa thử cho mỗi ảnh mẫu
 WALL_POPUP_DELAY = 0.8       # chờ popup nâng cấp / xác nhận hiện ra (giây)
 
@@ -171,7 +176,7 @@ BOOST_EXCLUDE_ROIS = ((55, 398, 905, 540), (0, 365, 140, 432))
 HOME_GREEN_HSV = ((35, 110, 110), (90, 255, 255))   # xanh lá của nút 'Về nhà / Về làng'
 HOME_MIN_GREEN_RATIO = 0.25        # ảnh mẫu 'Về nhà' khớp tại đâu thì quanh đó phải có >= bấy nhiêu phần XANH LÁ (nút thật luôn xanh)
 HOME_TRUST_SCORE = 0.92            # hoặc điểm khớp >= mức này thì tin luôn (không cần kiểm tra màu)
-CODE_VERSION = "v5-2026-11-09"   # hiện trong log đầu mỗi trận: thấy khác phiên bản này nghĩa là chưa copy đúng file
+CODE_VERSION = "v7-2026-11-10-boat"   # hiện trong log đầu mỗi trận: thấy khác phiên bản này nghĩa là chưa copy đúng file
 BOOST_MIN_VOTES = 1                # nút Tăng tốc: 1 ảnh mẫu khớp là đủ (TEMPLATE_MIN_VOTES=2 làm bot bỏ qua nút vì chỉ 1/2 ảnh khớp)
 HOME_GREEN_MATCH_TOL = 70          # px: vị trí ảnh mẫu 'Về nhà' lệch nút XANH LÁ quá mức này -> ảnh mẫu khớp NHẦM chỗ, dùng vị trí nút xanh
 HOME_CLICK_ESCALATE_AFTER = 2      # bấm 'Về nhà' bấy nhiêu lần mà màn hình kết quả vẫn còn -> luân phiên thử nút xanh HSV (chỉ theo ảnh)
@@ -184,6 +189,9 @@ DIAG_INTERVAL = 15.0               # giây: khi giám sát trận, log điểm k
 # Thấy nút này thì chắc chắn chưa hết trận -> không được kết luận 'Về nhà' (ảnh mẫu dễ khớp nhầm nút đỏ này).
 BATTLE_END_BTN_ROI = (10, 380, 132, 428)   # x1, y1, x2, y2
 BATTLE_END_BTN_RED_RATIO = 0.20            # tỉ lệ điểm ảnh đỏ trong ROI để coi là có nút
+BUILDER_BATTLE_END_BTN_ROI = (10, 345, 140, 412)   # Làng phụ: nút đỏ 'Kết thúc trận chiến' nằm CAO hơn làng chính (~y 358-394) (config.json -> BUILDER_BATTLE_END_BTN_ROI)
+BUILDER_BATTLE_END_BTN_RED_RATIO = 0.12            # ROI làng phụ có cả nền xung quanh nút nên hạ ngưỡng đỏ (config.json -> BUILDER_BATTLE_END_BTN_RED_RATIO)
+HOME_BOOST_EXCLUDE_TOL = 80                        # nút 'Về nhà' dò được cách nút Tăng tốc <= bấy nhiêu px = khớp nhầm vào nút Tăng tốc
 ZOOM_OUT_STEPS = 8                 # số bước nội suy khi chụm 2 ngón (càng nhiều càng mượt)
 # Zoom out: thử lần lượt các phương án cho tới khi màn hình thực sự đổi (không phụ thuộc getevent -p)
 # Mặc định chỉ dùng Ctrl + cuộn chuột (LDPlayer cần giữ Ctrl rồi cuộn). "parallel" (swipe song song)
@@ -219,11 +227,22 @@ WALL_MENU_SETTLE_TIMEOUT = 3.0            # chờ menu đứng yên tối đa (g
 WALL_MENU_SETTLE_DIFF = 2.0               # độ lệch xám TB giữa 2 khung liên tiếp để coi là "đã đứng yên"
 # --- Phục hồi: Tải lại trò chơi / popup lạ ---
 # (RELOAD_WAIT_SECONDS cũ đã bỏ: sau "Tải lại trò chơi" chờ động bằng wait_for_game_start, xem RELOAD_START_TIMEOUT)
-# KHÔNG quét nút X bằng ảnh nữa (dễ bấm nhầm X của menu Búa / Sự kiện / Shop).
-# Ở màn hình LẠ liên tục UNKNOWN_SCREEN_SECONDS giây -> bấm 1 cú vào FALLBACK_SAFE_CLICK_POS
-# (config.json -> MANUAL_POSITIONS, người dùng tự chỉnh trên GUI).
-UNKNOWN_SCREEN_FALLBACK = True     # False: tắt hẳn việc tự bấm tọa độ thoát an toàn
+# Ở màn hình LẠ liên tục UNKNOWN_SCREEN_SECONDS giây (hoặc Watchdog báo kẹt) -> chạy _recover_stuck_ladder(), 4 BƯỚC ƯU TIÊN:
+#   1) quét danh sách N ảnh nút luồng lạ (assets/anomaly/anomaly_btn_*.png, config.json -> ANOMALY_BUTTON_IMAGES) -> bấm nút khớp;
+#   2) không có nút / bấm xong vẫn kẹt -> bấm FALLBACK_SAFE_CLICK_POS (config.json -> MANUAL_POSITIONS);
+#   3) vẫn chưa về Làng chính -> xác định kẹt nghiêm trọng;
+#   4) tắt & mở lại game (quá STUCK_MAX_GAME_RESTARTS lần vẫn kẹt -> khởi động lại LDPlayer).
+# Ảnh nút do NGƯỜI DÙNG tự cắt bằng tools/crop_tool.py (mục 22) nên chỉ bấm đúng nút đã dạy, không quét X bừa.
+UNKNOWN_SCREEN_FALLBACK = True     # False: tắt hẳn việc tự xử lý màn hình lạ (4 bước ở trên)
 UNKNOWN_SCREEN_SECONDS = 5         # số giây liên tục ở trạng thái UNKNOWN trước khi bấm tọa độ thoát
+# Quét nút luồng lạ CHỦ ĐỘNG mỗi vòng lặp chính (không chờ 'màn hình lạ' 5s / Watchdog 30s). Lý do: popup lạ thường chỉ LÀM TỐI
+# nền làng, nút Chiến đấu / Búa phía sau vẫn khớp ảnh mẫu (TM_CCOEFF_NORMED không phụ thuộc độ sáng) -> bot tưởng là màn hình quen
+# nên bậc thang 4 bước không bao giờ chạy. config.json -> ANOMALY_PROACTIVE_SCAN = false để tắt.
+ANOMALY_PROACTIVE_SCAN = True
+ANOMALY_CLICK_COOLDOWN = 1.2       # giây tối thiểu giữa 2 lần bấm nút luồng lạ chủ động (chờ popup đóng xong)
+ANOMALY_MAX_SAME_CLICKS = 4        # bấm cùng 1 nút ở cùng chỗ quá bấy nhiêu lần mà nút vẫn còn -> ngưng quét chủ động tạm thời
+ANOMALY_BLOCK_SECONDS = 20.0       # ...trong bấy nhiêu giây (nhường cho bậc thang 4 bước / Watchdog xử lý)
+ANOMALY_SAME_SPOT_TOL = 12         # px: coi là 'cùng một nút' nếu vị trí lệch không quá mức này
 
 # --- Stuck Watchdog: chống kẹt / treo màn hình ở BẤT KỲ bước nào ---
 STUCK_WATCHDOG_ENABLE = True       # False: tắt hẳn Watchdog
@@ -253,6 +272,75 @@ TPL_BOOST = "button_boost*.png"
 TPL_RETRY = "button_retry*.png"
 TPL_RELOAD = "button_reload*.png"
 TPL_BATTLE_SUMMARY = "battle_summary*.png"   # (tùy chọn) bảng tổng kết thiệt hại % - thấy nghĩa là trận đã kết thúc
+# --- LÀNG PHỤ (Làng thợ xây): ảnh mẫu cắt bằng tools/crop_tool.py, mục 23-26 (mỗi nút nhiều biến thể _2, _3...) ---
+# Tên file KHÔNG bắt đầu bằng button_attack / confirm_... nên wildcard của 2 làng không nạp lẫn ảnh của nhau.
+FARM_MAIN = "main"                 # config.json -> FARM_VILLAGE: làng chính (tìm trận, soi tài nguyên, nâng Tường)
+FARM_BUILDER = "builder"           # config.json -> FARM_VILLAGE: làng phụ (bấm Tấn công là đánh luôn)
+TPL_BUILDER_ATTACK = "builder_attack_btn*.png"                   # mục 23: nút Tấn công ở Làng thợ xây
+TPL_BUILDER_CONFIRM_ATTACK = "builder_confirm_attack_btn*.png"   # mục 24: popup Xác nhận tấn công
+TPL_BUILDER_CLAIM = "builder_claim_reward_btn*.png"              # mục 25: nút Nhận thưởng (tùy chọn)
+TPL_BUILDER_CONFIRM_REWARD = "builder_confirm_reward_btn*.png"   # mục 26: popup Xác nhận nhận thưởng (tùy chọn)
+BUILDER_BTN_THRESHOLD = 0.75       # ngưỡng khớp các nút làng phụ (config.json -> BUILDER_BTN_THRESHOLD ghi đè)
+BUILDER_LOAD_TIMEOUT = 25.0        # sau Xác nhận: chờ vào trận tối đa bấy nhiêu giây (config.json -> BUILDER_LOAD_TIMEOUT)
+BUILDER_LOAD_CONFIRM_FRAMES = 2    # nút Tấn công/Xác nhận phải biến mất ngần này khung liên tiếp mới coi là đã vào trận
+BUILDER_LOAD_POLL = 0.5            # nhịp chụp khi chờ vào trận (giây)
+BUILDER_DEPLOY_SETTLE = 3.0        # đã vào trận: chờ thêm bấy nhiêu giây cho thanh quân hiện đủ rồi mới thả (config.json -> BUILDER_DEPLOY_SETTLE)
+BUILDER_REWARD_CONFIRM_MAX_TAPS = 3     # bấm 'Xác nhận nhận thưởng' quá ngần này lần trong BUILDER_REWARD_CONFIRM_WINDOW giây mà popup vẫn còn = nút vô hiệu (xám) -> thôi, đóng popup
+BUILDER_REWARD_CONFIRM_WINDOW = 30.0
+BUILDER_REWARD_BLOCK = 120.0            # sau khi bỏ cuộc: không đụng tới nút nhận thưởng trong bấy nhiêu giây
+BUILDER_BTN_COLOR_MIN = 0.10            # nút còn bấm được phải có >= tỉ lệ này điểm ảnh MÀU (xanh/cam...); nút xám vô hiệu ~0 (config.json -> BUILDER_BTN_COLOR_MIN)
+BUILDER_CLAIM_COOLDOWN = 60.0      # bấm Nhận thưởng tối đa 1 lần / bấy nhiêu giây (tránh bấm lặp khi nút vẫn còn)
+BUILDER_WARN_GAP = 30.0            # giãn cách giữa 2 lần cảnh báo cùng loại (giây)
+BUILDER_WALL_EVERY_BATTLES = 5     # Làng phụ: cứ đủ bấy nhiêu trận thì nhận thưởng -> nâng Tường (config.json -> BUILDER_WALL_EVERY_BATTLES ghi đè)
+BUILDER_WALL_CLAIM_WAIT = 8.0      # sau khi nhận thưởng: chờ tối đa bấy nhiêu giây cho màn Làng phụ hiện lại rồi mới mở menu Búa
+# --- Đi thuyền từ Làng chính sang Làng thợ xây (ảnh thuyền: crop_tool mục 27, cắt NHIỀU ảnh khi làng đã zoom out xa nhất) ---
+TPL_BOAT = "boat_to_builder*.png"
+TPL_BOAT_MAIN = "boat_to_main*.png"   # thuyền Ở LÀNG THỢ XÂY để về Làng chính (crop_tool mục 28)
+BOAT_THRESHOLD = 0.70              # ngưỡng khớp ảnh thuyền (config.json -> BOAT_THRESHOLD ghi đè)
+BOAT_ZOOM_OUT = True               # zoom out làng chính trước khi tìm thuyền (config.json -> BOAT_ZOOM_OUT); ảnh thuyền phải cắt ở mức zoom này
+BOAT_SWIPE_DURATION = 700          # ms mỗi lần kéo bản đồ (chậm để ít bị quán tính trôi quá đà)
+BOAT_PAN_SETTLE = 0.8              # chờ bản đồ đứng yên sau mỗi lần kéo rồi mới quét (giây)
+BOAT_PAN_DX = 360                  # px kéo ngang mỗi nhịp (config.json -> BOAT_PAN_DX)
+BOAT_PAN_DY = 200                  # px kéo dọc mỗi nhịp (config.json -> BOAT_PAN_DY)
+# Đường lướt xoắn ốc (hướng kéo x, hướng kéo y, số nhịp): phủ hết bản đồ dù camera đang ở đâu; chạm mép thì kéo thêm vô hại.
+# Kéo sang TRÁI (-1) = nhìn thấy phần bên PHẢI của làng; kéo LÊN (-1) = nhìn thấy phần phía DƯỚI.
+BOAT_PAN_PLAN = ((-1, 0, 2), (0, -1, 2), (1, 0, 4), (0, 1, 4), (-1, 0, 4))
+BOAT_TRAVEL_TIMEOUT = 40.0         # bấm thuyền xong: chờ thấy nút Tấn công làng phụ tối đa bấy nhiêu giây (config.json -> BOAT_TRAVEL_TIMEOUT)
+BOAT_RETRY_GAP = 8.0               # quét hết bản đồ / đi thuyền thất bại: nghỉ bấy nhiêu giây rồi mới thử lại (config.json -> BOAT_RETRY_GAP)
+# --- Tìm nút/xe NHẬN THƯỞNG ở Làng phụ trước khi nâng Tường: không thấy trên màn hình thì zoom out + lướt trái/phải/lên/xuống ---
+BUILDER_CLAIM_SEARCH = True          # config.json -> BUILDER_CLAIM_SEARCH = false để chỉ nhìn màn hình hiện tại (như bản cũ)
+BUILDER_CLAIM_ZOOM_OUT = True        # config.json -> BUILDER_CLAIM_ZOOM_OUT: zoom out làng trước khi lướt (ảnh nhận thưởng nên cắt cả ở mức zoom xa nhất)
+BUILDER_CLAIM_SEARCH_GAP = 120.0     # sau 1 lần quét hết bản đồ (thấy hay không): bấy nhiêu giây sau mới quét lại (tránh quét lặp khi vòng nâng Tường bị hoãn)
+
+# --- LƯỢT 2 ở Làng phụ: thắng lượt 1 thì game cho đánh tiếp lượt 2 (màn đếm ngược 'Trận chiến bắt đầu trong vòng: NNgi') ---
+# Sau khi thả quân lượt 1, bot chỉ chờ nút Tăng tốc / Về nhà nên sẽ KHÔNG thả quân cho lượt 2. Bot nhận ra lượt mới bằng ảnh chữ
+# 'Trận chiến bắt đầu trong vòng' (crop_tool mục 29, chỉ cắt phần CHỮ, không cắt số giây) rồi thả quân lại.
+TPL_BUILDER_ROUND_START = "builder_round_start*.png"
+BUILDER_NEXT_ROUND = True            # config.json -> BUILDER_NEXT_ROUND = false để tắt
+BUILDER_MAX_ROUNDS = 2               # số lượt thả quân tối đa mỗi trận (config.json -> BUILDER_MAX_ROUNDS)
+BUILDER_ROUND_THRESHOLD = 0.70       # ngưỡng khớp chữ đếm ngược (config.json -> BUILDER_ROUND_THRESHOLD)
+BUILDER_ROUND_ROI_DEFAULT = (120, 0, 840, 110)   # (960x540) vùng giữa-trên màn hình chứa banner (config.json -> BUILDER_ROUND_ROI)
+BUILDER_ROUND_CONFIRM_FRAMES = 1     # banner phải thấy liên tiếp ngần này khung mới tính là lượt mới (1 = cứ thấy banner là hành động; độ chính xác đã do ngưỡng 0.85 + độ phủ chữ đảm bảo)
+BUILDER_TOPUP_ENABLED = True         # thả bù: thả ngay khi thấy banner (game còn đếm ngược nên lính có thể chưa xuống) -> khi banner hết, ô nào còn quân thì thả lại (config.json -> BUILDER_TOPUP)
+BUILDER_TOPUP_ABSENT_FRAMES = 2      # banner phải vắng liên tiếp ngần này khung mới coi là đã hết đếm ngược (tránh nhấp nháy)
+BUILDER_TOPUP_SETTLE = 0.6           # nghỉ sau khi hết đếm ngược rồi mới thả bù
+BUILDER_ROUND_WAIT_START = True      # True: chờ hết đếm ngược (banner biến mất) rồi mới thả; False: thả ngay khi thấy banner
+BUILDER_ROUND_START_TIMEOUT = 75.0   # chờ hết đếm ngược tối đa bấy nhiêu giây (quá thì vẫn thả)
+BUILDER_ROUND_SETTLE = 1.0           # nghỉ sau khi hết đếm ngược rồi mới thả
+BUILDER_DEPLOY_ON_BANNER = True      # Làng phụ: THẤY banner 'Trận chiến bắt đầu trong vòng' là THẢ LUÔN (lượt 1 và lượt 2), không chờ hết đếm ngược (config.json -> BUILDER_DEPLOY_ON_BANNER = false để chờ hết đếm ngược như cũ)
+BUILDER_ROUND_END_GRACE = 0.0        # thấy nút 'Về nhà' (đã đủ khung xác nhận) là ấn luôn, không chờ. Đặt > 0 để chờ tối đa bấy nhiêu giây xem banner lượt 2 có hiện không rồi mới kết luận hết trận (config.json -> BUILDER_ROUND_END_GRACE)
+BUILDER_ROUND_SKIP_EMPTY = True      # lượt 2: bỏ qua ô quân đã HẾT (xám '0x') / ô trống, khỏi bấm vô ích
+BUILDER_SLOT_MAX_SAT = 30            # ô có độ bão hòa màu TB < ngưỡng này = ô xám (hết quân); đo thực tế: ô hết = 0, ô còn >= 88
+BUILDER_SLOT_MIN_VALUE = 80          # ô có độ sáng TB < ngưỡng này = ô trống nét đứt (đo thực tế: ~47)
+# --- Nhận ra chữ 'Trận chiến bắt đầu trong vòng' KHÔNG phụ thuộc phong cảnh (so khớp ảnh xám cũ tụt điểm mạnh khi đổi nền) ---
+BUILDER_ROUND_MATCH_MODE = "contrast"     # "contrast": đo tương phản NÉT CHỮ SÁNG - VIỀN TỐI theo hình chữ trong ảnh mẫu (bỏ qua nền) | "template": so khớp ảnh xám như cũ
+BUILDER_ROUND_MATCH_THRESHOLD = 0.85      # điểm tương phản (1.0 = giống ảnh mẫu); đo trên ảnh thật: có banner 0.95, không banner <= 0.56 (config.json -> BUILDER_ROUND_MATCH_THRESHOLD ghi đè)
+BUILDER_ROUND_TEXT_MIN = 150              # điểm ảnh mẫu có kênh BGR thấp nhất >= ngưỡng này = NÉT CHỮ; viền = vòng 1px quanh nét chữ
+BUILDER_ROUND_SHAPE_THRESHOLD = 0.70            # ĐỘ PHỦ nét chữ: tỉ lệ điểm nét chữ của ảnh mẫu đang SÁNG trên màn hình. Banner thật ~0.81, chữ 'Trận chiến kết thúc sau:' ~0.53
+                                                  # (config.json -> BUILDER_ROUND_SHAPE_THRESHOLD)
+BUILDER_WAIT_FIRST_BANNER = True                 # Làng phụ: CHỜ hết màn đếm ngược 'Trận chiến bắt đầu trong vòng' của LƯỢT 1 rồi mới thả (thả khi còn đếm ngược = thả hụt)
+BUILDER_FIRST_BANNER_APPEAR_TIMEOUT = 15.0       # chờ banner đầu trận hiện ra tối đa bấy nhiêu giây (không hiện = trận không có đếm ngược -> thả luôn)
+
 # --- Đầu hàng (Surrender Fallback): cắt bằng tools/crop_tool.py, mục 17 / 18 ---
 TPL_SURRENDER = "surrender_btn*.png"                     # nút Đầu hàng (góc dưới trái khi đang ở trận / soi nhà)
 TPL_CONFIRM_SURRENDER = "confirm_surrender_btn*.png"     # nút Xác nhận đầu hàng (popup giữa màn hình)
@@ -269,12 +357,13 @@ SURRENDER_NO_NEXT_CONFIRM = 2     # số lần chụp liên tiếp KHÔNG thấy
 ANCHOR_TEMPLATES = (
     TPL_BATTLE, TPL_BUILD, TPL_FIND_MATCH, TPL_ATTACK,
     TPL_NEXT, TPL_RETURN_HOME, TPL_BOOST,
+    TPL_BUILDER_ATTACK, TPL_BUILDER_CONFIRM_ATTACK, TPL_BUILDER_CLAIM, TPL_BUILDER_CONFIRM_REWARD,
 )
 
 # --- 7 trạng thái màn hình mà detect_initial_state() phân loại ---
 GAME_STATES = (
     "HOME_VILLAGE", "SEARCH_MENU", "ATTACK_PREPARE", "SCOUTING",
-    "IN_BATTLE", "CONNECTION_ERROR", "UNKNOWN",
+    "IN_BATTLE", "CONNECTION_ERROR", "BUILDER_HOME", "BUILDER_CONFIRM", "UNKNOWN",
 )
 # Bảng luật nhận diện, QUÉT THEO THỨ TỰ (trạng thái, các mẫu wildcard, ngưỡng khớp, câu log)
 STATE_RULES = (
@@ -284,6 +373,14 @@ STATE_RULES = (
     ("ATTACK_PREPARE",   (TPL_ATTACK,),            0.75, "✅ Nhận diện tức thì: Đang ở Bảng chuẩn bị quân"),
     ("SCOUTING",         (TPL_NEXT,),              0.75, "✅ Nhận diện tức thì: Đang ở Màn hình soi nhà"),
     ("IN_BATTLE",        (TPL_RETURN_HOME,),       0.60, "✅ Nhận diện tức thì: Đang trong trận đấu (IN_BATTLE)"),
+)
+# Chỉ dùng khi FARM_VILLAGE = "builder": xếp ngay SAU luật CONNECTION_ERROR. Popup xác nhận phải xét TRƯỚC nút Tấn công
+# (popup đè lên màn hình làng phụ nên nút Tấn công phía sau vẫn có thể còn thấy).
+BUILDER_STATE_RULES = (
+    ("BUILDER_CONFIRM", (TPL_BUILDER_CONFIRM_ATTACK, TPL_BUILDER_CONFIRM_REWARD), 0.75,
+     "✅ Nhận diện tức thì: Popup xác nhận ở Làng phụ (BUILDER_CONFIRM)"),
+    ("BUILDER_HOME",    (TPL_BUILDER_ATTACK, TPL_BUILDER_CLAIM),                  0.75,
+     "✅ Nhận diện tức thì: Đang ở Làng phụ (BUILDER_HOME)"),
 )
 DEPLOY_AUTO_SCAN = True            # False (hoặc config.json -> DEPLOY_AUTO_SCAN=false): bỏ tầng 2, không quét thanh quân
 ZOOM_PROCESS_NAMES = ("dnplayer.exe",)    # tiến trình cửa sổ LDPlayer (nhận diện theo tiến trình, không chỉ tiêu đề)
@@ -360,6 +457,7 @@ HERO_SKILL_IMMEDIATE_GAP = 0.1         # nghỉ sau khi thả Tướng rồi m�
 # Watchdog, _is_known_screen, check_and_search_match...). Kết quả được nhớ theo (ảnh, mẫu, ngưỡng).
 SLOW_TICK_LOG = 3.0     # vòng lặp lâu hơn bấy nhiêu giây thì ghi log phân tích thời gian
 _MATCH_CACHE = {"screen": None, "fp": None, "res": {}}
+_ROUND_KERNELS = {}      # đường dẫn ảnh mẫu chữ đếm ngược lượt 2 -> (mtime, kernel tương phản, độ tương phản mẫu)
 _PROF = {"match_s": 0.0, "match_n": 0, "hit_n": 0, "cap_s": 0.0, "cap_n": 0, "t0": time.time()}
 
 
@@ -403,25 +501,36 @@ def _template_names_exist(names):
     return bool(ImageProcessor.expand_template_paths(_asset_specs(names)))
 
 
-def _find_any(screen, names, threshold=0.75):
+# Nhóm ảnh mẫu mà các ảnh biến thể là CÁC TRẠNG THÁI KHÁC NHAU của cùng 1 nút (tại 1 thời điểm chỉ hiện 1 trạng thái):
+# chỉ cần 1 ảnh khớp là đủ (min_votes=1), KHÔNG bắt nhiều ảnh cùng đồng ý như cơ chế bỏ phiếu mặc định của ImageProcessor
+# (nếu không, nút có 2 trạng thái luôn bị loại với log "[VOTE] Từ chối ...: chỉ 1/2 ảnh khớp cùng vị trí").
+ANY_VARIANT_TEMPLATES = frozenset({TPL_BUILDER_ATTACK,      # nút Tấn công Làng phụ (2 trạng thái)
+                                    TPL_BUILDER_CLAIM})      # nút/xe Nhận thưởng Làng phụ (ít thưởng / nhiều thưởng...: mỗi trạng thái 1 ảnh)
+
+
+def _find_any(screen, names, threshold=0.75, min_votes=None):
     """
     Giống _find_image nhưng cho NHIỀU ảnh mẫu biến thể: `names` là tên wildcard trong assets/
     (vd "button_return_home*.png") hoặc list tên. Dùng ImageProcessor.find_any_template_location
     (cache ảnh mẫu + short-circuit) và cũng nhớ kết quả theo ảnh màn hình như _find_image.
+    min_votes: None = mặc định (config.json TEMPLATE_MIN_VOTES); 1 = chỉ cần 1 ảnh biến thể khớp
+    (tự áp dụng cho các nút trong ANY_VARIANT_TEMPLATES).
     """
+    if min_votes is None and isinstance(names, str) and names in ANY_VARIANT_TEMPLATES:
+        min_votes = 1
     specs = _asset_specs(names)
     if screen is None:
-        return ImageProcessor.find_any_template_location(screen, specs, threshold=threshold)
+        return ImageProcessor.find_any_template_location(screen, specs, threshold=threshold, min_votes=min_votes)
     fp = _screen_fingerprint(screen)
     c = _MATCH_CACHE
     if c["screen"] is not screen or c["fp"] != fp:
         c["screen"], c["fp"], c["res"] = screen, fp, {}
-    key = ("ANY", tuple(specs) if isinstance(specs, list) else specs, float(threshold))
+    key = ("ANY", tuple(specs) if isinstance(specs, list) else specs, float(threshold), min_votes)
     if key in c["res"]:
         _PROF["hit_n"] += 1
         return c["res"][key]
     t = time.time()
-    res = ImageProcessor.find_any_template_location(screen, specs, threshold=threshold)
+    res = ImageProcessor.find_any_template_location(screen, specs, threshold=threshold, min_votes=min_votes)
     _PROF["match_s"] += time.time() - t
     _PROF["match_n"] += 1
     c["res"][key] = res
@@ -484,6 +593,7 @@ class BotLogic:
         # Lịch kiểm tra nâng Tường: None = chưa kiểm tra lần nào kể từ khi vào game
         # -> lần đầu ở làng nhà sẽ nâng Tường ngay; sau đó cứ đủ WALL_RETRY_BATTLES_LIMIT trận.
         self._wall_check_battle_mark = None
+        self._builder_wall_battles = 0   # Làng phụ: số trận đã đánh kể từ lần nâng Tường gần nhất
         self._last_builder_warn = 0   # giới hạn tần suất log khi không đọc được số thợ
 
         # Chế độ Cào dữ liệu
@@ -563,7 +673,11 @@ class BotLogic:
         try:
             # Số trận còn lại tới lượt nâng Tường (0 = trận kế tiếp sẽ nâng).
             # Tắt nâng Tường -> None để UI hiện "chưa kích hoạt" thay vì đếm ngược sai.
-            until_check = self._battles_until_wall_check() if self._wall_settings()["enable"] else None
+            if self._farm_village() == FARM_BUILDER:
+                until_check = self._builder_battles_until_wall() if self._builder_wall_enabled() else None
+            else:
+                until_check = (self._battles_until_wall_check()
+                               if self._wall_settings()["enable"] else None)
             self.ui_queue.put({
                 "type": "stats",
                 "content": {
@@ -1109,19 +1223,77 @@ class BotLogic:
         self._unknown_since = None
         self._unknown_taps = 0
 
+    def _anomaly_proactive_scan(self, screen):
+        """
+        Quét CHỦ ĐỘNG danh sách ảnh nút luồng lạ (assets/anomaly/anomaly_btn_*.png) trên khung hình hiện tại; thấy nút nào
+        khớp thì bấm đúng tâm nút đó. Chạy mỗi vòng lặp chính (qua _handle_unknown_flow) nên xử lý được cả popup lạ làm
+        TỐI nền làng (nút Chiến đấu / Búa phía sau vẫn khớp -> _is_known_screen() trả True, không bao giờ vào bậc thang 4 bước).
+        An toàn: bỏ qua khi đang trong trận; cách nhau ANOMALY_CLICK_COOLDOWN giây; bấm cùng 1 nút quá ANOMALY_MAX_SAME_CLICKS
+        lần mà nút vẫn còn thì tạm ngưng ANOMALY_BLOCK_SECONDS giây (nhường cho bậc thang 4 bước), tránh bấm lặp vô hạn.
+        :return: True nếu vừa bấm một nút luồng lạ (luồng gọi nên bắt đầu lại vòng lặp).
+        """
+        try:
+            if not bool(load_json_config().get("ANOMALY_PROACTIVE_SCAN", ANOMALY_PROACTIVE_SCAN)):
+                return False
+            if getattr(self, "_battle_started_at", None) is not None:
+                return False                      # đang thả quân / chờ trận: không bấm bậy
+            now = time.time()
+            if now < getattr(self, "_anomaly_block_until", 0.0):
+                return False
+            if now - getattr(self, "_anomaly_click_at", 0.0) < ANOMALY_CLICK_COOLDOWN:
+                return False
+            if not ImageProcessor.get_anomaly_template_paths():
+                return False                      # chưa có ảnh nào (crop_tool mục 22)
+            hit = ImageProcessor.find_anomaly_button(screen, return_details=True, fast=True)
+            if not hit:
+                self._anomaly_last = None
+                return False
+
+            x, y = hit["pos"]
+            name = os.path.basename(hit["path"])
+            last = getattr(self, "_anomaly_last", None)     # (đường dẫn, (x, y), số lần đã bấm liên tiếp)
+            same = (last is not None and last[0] == hit["path"]
+                    and abs(last[1][0] - x) <= ANOMALY_SAME_SPOT_TOL and abs(last[1][1] - y) <= ANOMALY_SAME_SPOT_TOL
+                    and now - getattr(self, "_anomaly_click_at", 0.0) < 15.0)
+            count = last[2] + 1 if same else 1
+            if count > ANOMALY_MAX_SAME_CLICKS:
+                self._anomaly_block_until = now + ANOMALY_BLOCK_SECONDS
+                self._anomaly_last = None
+                self.log(f"⚠️ [Luồng lạ] Đã bấm {name} tại ({x}, {y}) {ANOMALY_MAX_SAME_CLICKS} lần mà nút vẫn còn "
+                         f"-> tạm ngưng quét chủ động {ANOMALY_BLOCK_SECONDS:g}s (kiểm tra lại ảnh {name}: có thể nút này "
+                         f"cũng xuất hiện ở màn hình bình thường)")
+                return False
+
+            self.log(f"🧩 [Luồng lạ] Thấy nút {name} (ảnh {hit['index']}/{hit['total']}, điểm {hit['score']:.2f}) "
+                     f"-> bấm ({x}, {y}) [lần {count}]")
+            self.set_status("🧩 Đang xử lý luồng lạ...", "warn")
+            self._tap((x, y), "nút luồng lạ")
+            self._anomaly_click_at = time.time()
+            self._anomaly_last = (hit["path"], (x, y), count)
+            self._reset_unknown()
+            self._watchdog_reset()                # vừa tác động lên màn hình -> không tính là kẹt
+            self._sleep_interruptible(0.6)
+            return True
+        except Exception as e:
+            self.debug(f"[⚠️ CẢNH BÁO] _anomaly_proactive_scan: {e}")
+            return False
+
     def _handle_unknown_flow(self, screen):
         """
         Xử lý giao diện / luồng lạ (menu Cài đặt, popup hệ thống, màn hình sự kiện...) mà KHÔNG quét nút X:
           - Thấy 1 ảnh mẫu 'mốc' (Chiến đấu, Xây dựng, Tìm trận, Tấn công, Next, Về nhà, Tăng tốc) -> bình thường.
-          - Không thấy mốc nào liên tục UNKNOWN_SCREEN_SECONDS (5s) -> bấm 1 cú vào FALLBACK_SAFE_CLICK_POS
-            (config.json -> MANUAL_POSITIONS, người dùng tự chỉnh trên GUI), rồi đếm lại 5s.
-          - Đã bấm tọa độ thoát mà vẫn lạ VÀ chưa có assets/button_reload.png -> lần kế tiếp thử
-            RELOAD_GAME_POS (có thể là popup 'Tải lại trò chơi' mà bot chưa có ảnh mẫu để nhận ra).
+          - Không thấy mốc nào liên tục UNKNOWN_SCREEN_SECONDS (5s) -> _recover_stuck_ladder(): quét nút luồng lạ
+            -> bấm tọa độ an toàn -> mở lại game (đúng thứ tự 4 bước, xem hằng số UNKNOWN_SCREEN_SECONDS).
         Tắt bằng UNKNOWN_SCREEN_FALLBACK = False. KHÔNG ném lỗi.
-        :return: True nếu vừa bấm để thoát / phục hồi.
+        :return: True nếu vừa xử lý để thoát / phục hồi.
         """
         try:
-            if screen is None or not UNKNOWN_SCREEN_FALLBACK:
+            if screen is None:
+                return False
+            # Thấy nút luồng lạ nào đã cắt (assets/anomaly/) thì bấm NGAY, bất kể màn hình có bị coi là 'quen' hay không
+            if self._anomaly_proactive_scan(screen):
+                return True
+            if not UNKNOWN_SCREEN_FALLBACK:
                 return False
 
             known = self._is_known_screen(screen)
@@ -1136,23 +1308,125 @@ class BotLogic:
             if now - self._unknown_since < UNKNOWN_SCREEN_SECONDS:
                 return False
 
-            self._unknown_since = now        # bấm xong phải lạ thêm 5s nữa mới bấm tiếp
+            self._unknown_since = now        # xử lý xong mà vẫn lạ thì phải lạ thêm 5s nữa mới xử lý tiếp
             self._unknown_taps += 1
-            no_reload_img = not _template_names_exist(TPL_RELOAD)
-            if self._unknown_taps >= 2 and no_reload_img and self._unknown_taps % 2 == 0:
-                pos = self._manual_pos("RELOAD_GAME_POS")
-                self.debug(f"🔄 Vẫn ở luồng lạ sau khi bấm tọa độ thoát -> thử RELOAD_GAME_POS {pos}")
-                self._press_reload(pos)
-                return True
-
-            pos = self._manual_pos("FALLBACK_SAFE_CLICK_POS")
-            self.log(f"⚠️ Đang ở giao diện/luồng lạ -> Bấm tọa độ thoát an toàn tại ({pos[0]}, {pos[1]}) "
-                     f"để khôi phục Làng nhà")
-            self.adb.click(*pos)
-            time.sleep(1)
-            return True
+            self.log(f"⚠️ Đang ở giao diện/luồng lạ quá {UNKNOWN_SCREEN_SECONDS}s -> xử lý theo 4 bước ưu tiên")
+            return self._recover_stuck_ladder(screen, source="luồng lạ")
         except Exception as e:
             self.debug(f"[⚠️ CẢNH BÁO] _handle_unknown_flow: {e}")
+            return False
+
+    # ------------------------------------------------------------------
+    # 3-bis. XỬ LÝ LUỒNG LẠ / KẸT MÀN HÌNH - 4 BƯỚC ƯU TIÊN
+    # ------------------------------------------------------------------
+    def _anomaly_settings(self):
+        """(số lần quét lại, giây chờ ổn định) từ config.json -> ANOMALY_SCAN_RETRIES / ANOMALY_SETTLE_SECONDS."""
+        try:
+            cfg = load_json_config()
+            retries = max(1, int(cfg.get("ANOMALY_SCAN_RETRIES", 2)))
+            settle = max(0.3, float(cfg.get("ANOMALY_SETTLE_SECONDS", 1.5)))
+        except Exception:
+            retries, settle = 2, 1.5
+        return retries, settle
+
+    def _settle_and_check_home(self, settle):
+        """Chờ màn hình ổn định, chụp khung MỚI, kiểm tra đã về Làng chính chưa. Trả (ảnh mới, True/False)."""
+        self._sleep_interruptible(settle)
+        scr = self._capture(fresh=True)
+        return scr, bool(scr is not None and self._see_home_village(scr))
+
+    def _anomaly_recovered(self, how):
+        """Đã thoát kẹt (về Làng chính): xóa bộ đếm luồng lạ + Watchdog để bot chạy tiếp bình thường."""
+        self.log(f"✅ [Luồng lạ] {how} -> đã về Làng chính, tiếp tục chạy bình thường")
+        self.retry_count = 0
+        self._reset_unknown()
+        self._watchdog_reset()
+
+    def _anomaly_step1_scan_buttons(self, screen, retries, settle):
+        """
+        BƯỚC 1: quét tuần tự danh sách N ảnh nút luồng lạ (ImageProcessor.find_anomaly_button). Thấy nút khớp ->
+        bấm, nghỉ `settle` giây, chụp lại, đã về Làng chính thì xong. Chưa về (có thể còn popup nối tiếp) hoặc không
+        thấy nút nào -> quét lại, tối đa `retries` lần. Hết lượt vẫn kẹt -> trả False (sang bước 2).
+        """
+        if not ImageProcessor.get_anomaly_template_paths():
+            self.log("ℹ️ [Luồng lạ] Bước 1: chưa có ảnh nút luồng lạ (crop_tool mục 22 -> assets/anomaly/) -> bỏ qua")
+            return False
+        scr = screen
+        for attempt in range(1, retries + 1):
+            if self._stop_requested():
+                return False
+            if scr is None:
+                scr = self._capture(fresh=True)
+            hit = None
+            if scr is not None:
+                try:
+                    hit = ImageProcessor.find_anomaly_button(scr, return_details=True)
+                except Exception as e:
+                    self.debug(f"[⚠️ CẢNH BÁO] find_anomaly_button: {e}")
+            if hit:
+                x, y = hit["pos"]
+                self.log(f"🧩 [Luồng lạ] Bước 1 ({attempt}/{retries}): thấy nút {os.path.basename(hit['path'])} "
+                         f"(ảnh {hit['index']}/{hit['total']}, điểm {hit['score']:.2f}) -> bấm ({x}, {y})")
+                self.adb.click(int(x), int(y))
+                scr, home = self._settle_and_check_home(settle)
+                if home:
+                    return True
+                self.debug("🧩 [Luồng lạ] Bấm nút xong nhưng chưa về Làng chính -> quét lại (có thể còn popup nối tiếp)")
+            else:
+                self.debug(f"🧩 [Luồng lạ] Bước 1 ({attempt}/{retries}): quét hết danh sách ảnh, không thấy nút nào")
+                if attempt < retries:
+                    self._sleep_interruptible(settle)
+                    scr = self._capture(fresh=True)
+        return False
+
+    def _anomaly_step2_safe_click(self, settle):
+        """BƯỚC 2: bấm tọa độ an toàn mặc định, chờ ổn định, kiểm tra Làng chính lần 2. True nếu đã thoát kẹt."""
+        pos = self._safe_escape_pos()
+        if pos is None:
+            self.log("[⚠️ CẢNH BÁO] [Luồng lạ] Bước 2: chưa cấu hình FALLBACK_SAFE_CLICK_POS -> bỏ qua")
+            return False
+        self.log(f"👆 [Luồng lạ] Bước 2: bấm tọa độ an toàn {pos}")
+        self.adb.click(*pos)
+        _, home = self._settle_and_check_home(settle)
+        return home
+
+    def _recover_stuck_ladder(self, screen, source="kẹt"):
+        """
+        Thoát màn hình kẹt / luồng lạ theo ĐÚNG thứ tự 4 bước ưu tiên:
+          1) quét N ảnh nút luồng lạ -> bấm nút khớp -> kiểm tra Làng chính; về được thì XONG;
+          2) không thấy nút / vẫn kẹt -> bấm FALLBACK_SAFE_CLICK_POS -> kiểm tra Làng chính lần 2; về được thì XONG;
+          3) vẫn chưa về Làng chính -> xác định KẸT NGHIÊM TRỌNG;
+          4) khởi động lại game (quá STUCK_MAX_GAME_RESTARTS lần liên tiếp mà vẫn kẹt -> khởi động lại LDPlayer).
+        Dùng chung cho _handle_unknown_flow (màn hình lạ > 5s) và check_stuck_watchdog (đứng yên quá STUCK_TIMEOUT).
+        KHÔNG ném lỗi. :return: True nếu đã chạy xử lý (luồng gọi nên thoát vòng chờ và bắt đầu lại).
+        """
+        try:
+            retries, settle = self._anomaly_settings()
+            self.set_status(f"🧩 Đang xử lý {source}...", "warn")
+
+            if self._anomaly_step1_scan_buttons(screen, retries, settle):
+                self._anomaly_recovered("Bước 1: bấm nút xử lý luồng lạ")
+                return True
+            if self._stop_requested():
+                return True
+
+            if self._anomaly_step2_safe_click(settle):
+                self._anomaly_recovered("Bước 2: bấm tọa độ an toàn")
+                return True
+            if self._stop_requested():
+                return True
+
+            self.log("🚨 [Luồng lạ] Bước 3: đã bấm tọa độ an toàn mà vẫn chưa về Làng chính -> KẸT NGHIÊM TRỌNG")
+            if self._game_restarts < STUCK_MAX_GAME_RESTARTS:
+                self._game_restarts += 1
+                self.log(f"🔄 [Luồng lạ] Bước 4: tắt & mở lại Game (lần {self._game_restarts}/{STUCK_MAX_GAME_RESTARTS})")
+                self.restart_game_app()
+            else:
+                self.log(f"🔁 [Luồng lạ] Bước 4: đã mở lại Game {STUCK_MAX_GAME_RESTARTS} lần vẫn kẹt -> KHỞI ĐỘNG LẠI LDPlayer")
+                self._reboot_emulator()
+            return True
+        except Exception as e:
+            self.debug(f"[⚠️ CẢNH BÁO] _recover_stuck_ladder: {e}")
             return False
 
     def _handle_unhandled_popups(self, screen):
@@ -1168,6 +1442,7 @@ class BotLogic:
         Chỉ dùng ảnh mẫu (KHÔNG dùng scan_battle_bar: thanh UI làng chính bị quét nhầm thành ô quân
         -> kẹt IN_BATTLE). Quét tuần tự theo bảng STATE_RULES, mỗi luật tìm mọi biến thể wildcard:
           1. button_retry* / button_reload*  (0.70) -> 'CONNECTION_ERROR'
+          1b. builder_attack_btn* / builder_claim_reward_btn* (0.75) -> 'BUILDER_HOME' (xét TRƯỚC Làng chính, mọi chế độ farm)
           2. button_battle* / button_build*  (0.75) -> 'HOME_VILLAGE'
           3. button_find_match_1700*         (0.75) -> 'SEARCH_MENU'
           4. button_attack*                  (0.75) -> 'ATTACK_PREPARE'
@@ -1181,7 +1456,7 @@ class BotLogic:
         if screen is None:
             return "UNKNOWN"
         try:
-            for state, patterns, threshold, message in STATE_RULES:
+            for state, patterns, threshold, message in self._state_rules():
                 if any(_find_any(screen, pattern, threshold=threshold) for pattern in patterns):
                     say(message)
                     return state
@@ -1195,6 +1470,25 @@ class BotLogic:
 
         say("⚠️ Chưa xác định được màn hình hiện tại (UNKNOWN)")
         return "UNKNOWN"
+
+    def _state_rules(self):
+        """
+        Bảng luật nhận diện màn hình. BUILDER_STATE_RULES (nút Tấn công làng phụ...) luôn được xét NGAY SAU luật mất kết nối,
+        KHÔNG phụ thuộc FARM_VILLAGE: nút Búa / Chiến đấu có ở CẢ 2 làng nên chỉ nút Tấn công làng phụ mới phân biệt được
+        Làng phụ với Làng chính (nếu không, đang đứng ở Làng thợ xây vẫn bị nhận nhầm là HOME_VILLAGE).
+        Chưa có ảnh mẫu nút Tấn công làng phụ (crop_tool mục 23) mà farm Làng chính -> bỏ luật này như cũ.
+        """
+        if self._farm_village() == FARM_BUILDER or _template_names_exist(TPL_BUILDER_ATTACK):
+            return STATE_RULES[:1] + BUILDER_STATE_RULES + STATE_RULES[1:]
+        return STATE_RULES
+
+    def _in_builder_village(self, screen):
+        """True nếu màn hình đang là LÀNG PHỤ (thấy nút Tấn công làng phụ) - dùng để không nhầm với Làng chính."""
+        try:
+            return bool(_template_names_exist(TPL_BUILDER_ATTACK)
+                        and _find_any(screen, TPL_BUILDER_ATTACK, threshold=self._builder_threshold()))
+        except Exception:
+            return False
 
     def process_initial_state(self, min_gold, min_elixir, min_dark=0):
         """
@@ -1212,6 +1506,8 @@ class BotLogic:
             "SCOUTING": "Soi nhà địch (Scout / Attack)",
             "IN_BATTLE": "Đang trong trận (In Battle)",
             "CONNECTION_ERROR": "Popup mất kết nối / Tải lại trò chơi",
+            "BUILDER_HOME": "Làng phụ - Làng thợ xây (Builder Base)",
+            "BUILDER_CONFIRM": "Làng phụ - Popup xác nhận",
             "UNKNOWN": "Không nhận ra",
         }
         self.log(f"🧭 Trạng thái ban đầu: {labels[state]}")
@@ -1232,7 +1528,7 @@ class BotLogic:
             screen = self._capture()
             if screen is not None:
                 self.check_and_search_match(screen, min_gold, min_elixir, min_dark)
-        elif state in ("SEARCH_MENU", "ATTACK_PREPARE", "SCOUTING"):
+        elif state in ("SEARCH_MENU", "ATTACK_PREPARE", "SCOUTING", "BUILDER_HOME", "BUILDER_CONFIRM"):
             self.check_and_search_match(screen, min_gold, min_elixir, min_dark)
         elif state == "IN_BATTLE":
             self._has_boosted = False
@@ -1405,10 +1701,11 @@ class BotLogic:
         """
         Giám sát chống kẹt: theo dõi thời gian ĐỨNG YÊN của fingerprint màn hình (MD5 ảnh thu nhỏ 64x36).
         Khung hình giống hệt, hoặc chỉ lệch nhẹ do hoạt ảnh làng (< STUCK_FRAME_DIFF), thì vẫn tính là đứng yên.
-        Đứng yên quá STUCK_TIMEOUT (mặc định 30s, config.json ghi đè) ở BẤT KỲ bước nào -> phục hồi bậc thang:
-          Cấp nhẹ : bấm SAFE_ESCAPE_POS (thoát menu / popup phụ).
-          Cấp trung: sau STUCK_ESCALATE_SECONDS vẫn kẹt -> restart_game_app() (force-stop + mở lại).
-          Cấp nặng : đã mở lại game STUCK_MAX_GAME_RESTARTS lần mà vẫn kẹt -> _reboot_emulator().
+        Đứng yên quá STUCK_TIMEOUT (mặc định 30s, config.json ghi đè) ở BẤT KỲ bước nào -> _recover_stuck_ladder():
+          Bước 1: quét N ảnh nút luồng lạ (assets/anomaly/) -> bấm nút khớp, về Làng chính thì xong.
+          Bước 2: không được -> bấm tọa độ an toàn (SAFE_ESCAPE_POS / FALLBACK_SAFE_CLICK_POS), kiểm tra lại.
+          Bước 3-4: vẫn kẹt -> restart_game_app() (force-stop + mở lại); mở lại quá STUCK_MAX_GAME_RESTARTS lần
+                    mà vẫn kẹt -> _reboot_emulator().
         Chỉ so khung thu nhỏ, KHÔNG so khớp ảnh mẫu (rất nhẹ); throttle STUCK_CHECK_INTERVAL.
         :return: True nếu vừa chạy một bước phục hồi (luồng gọi nên thoát vòng chờ).
         """
@@ -1461,38 +1758,9 @@ class BotLogic:
             self.current_state = current_state
             fp_text = (fp or "?")[:8]
 
-            # ----- Cấp nhẹ -----
-            if self._stuck_stage == 0:
-                pos = self._safe_escape_pos()
-                if pos is None:
-                    self.log(f"🐢 [Watchdog] Kẹt {int(idle)}s ở {self.current_state} (fp {fp_text}) nhưng chưa cấu hình "
-                             f"SAFE_ESCAPE_POS / FALLBACK_SAFE_CLICK_POS -> bỏ qua cấp 1")
-                else:
-                    self.log(f"🐢 [Watchdog] Kẹt {int(idle)}s ở trạng thái {self.current_state} (fp {fp_text}) -> "
-                             f"Cấp 1: bấm tọa độ an toàn {pos}")
-                    self.adb.click(*pos)
-                self._stuck_stage = 1
-                self.set_status("🐢 Bot bị kẹt - đang thử thoát màn hình lạ...", "warn")
-                self._stuck_stage_time = now
-                return True
-
-            # Chờ STUCK_ESCALATE_SECONDS xem cú bấm có tác dụng không
-            if now - self._stuck_stage_time < STUCK_ESCALATE_SECONDS:
-                return False
-
-            # ----- Cấp trung -----
-            if self._game_restarts < STUCK_MAX_GAME_RESTARTS:
-                self._game_restarts += 1
-                self.log(f"🐢 [Watchdog] Vẫn kẹt sau cú bấm -> Cấp 2: tắt & mở lại Game "
-                         f"(lần {self._game_restarts}/{STUCK_MAX_GAME_RESTARTS})")
-                self.restart_game_app()
-                return True
-
-            # ----- Cấp nặng -----
-            self.log(f"🐢 [Watchdog] Mở lại Game {STUCK_MAX_GAME_RESTARTS} lần vẫn kẹt -> "
-                     f"Cấp 3: KHỞI ĐỘNG LẠI LDPlayer")
-            self._reboot_emulator()
-            return True
+            self.log(f"🐢 [Watchdog] Kẹt {int(idle)}s ở trạng thái {self.current_state} (fp {fp_text}) -> "
+                     f"xử lý theo 4 bước ưu tiên")
+            return self._recover_stuck_ladder(screen, source="kẹt màn hình")
         except Exception as e:
             self.debug(f"[⚠️ CẢNH BÁO] check_stuck_watchdog: {e}")
             return False
@@ -1618,78 +1886,71 @@ class BotLogic:
     @staticmethod
     def _wall_item_variants(filename):
         """
-        Ảnh gốc + mọi biến thể của 1 ảnh dòng Tường, vd "wall_item_lvA_gold.png" ->
-        wall_item_lvA_gold.png, wall_item_lvA_gold_2.png, ... (mẫu wall_item_lvA_gold*.png).
-        Mỗi dòng (Cấp A/B x Vàng/Dầu) chỉ gom biến thể của CHÍNH nó nên loại tài nguyên không bị lẫn.
+        Mọi ảnh của 1 nhóm dòng Tường, vd "wall_item_main_gold.png" ->
+        wall_item_main_gold.png, wall_item_main_gold_lv12.png, wall_item_main_gold_2.png ...
+        (mẫu wall_item_main_gold*.png, cấp Tường nào cũng nạp).
+        Mỗi nhóm (Làng chính/Làng phụ x Vàng/Dầu) chỉ gom ảnh của CHÍNH nó nên loại tài nguyên không bị lẫn.
         """
         stem, ext = os.path.splitext(filename)
         return ImageProcessor.expand_template_paths(asset(f"{stem}*{ext}"))
 
     def _find_wall_row(self, screen_menu):
         """
-        Quét 4 ảnh mẫu dòng đề xuất Tường (WALL_ITEM_TEMPLATES) trên screen_menu, trả về
-        (tên, tâm_dòng, loại tài nguyên "gold"/"elixir") của ảnh KHỚP TỐT NHẤT;
-        không có -> (None, None, None).
+        Quét các ảnh mẫu dòng đề xuất Tường (WALL_ITEM_TEMPLATES) trên screen_menu, trả về
+        (tên, tâm_dòng, loại tài nguyên "gold"/"elixir") của dòng KHỚP TỐT NHẤT và ĐỦ tài nguyên;
+        không có / thiếu tài nguyên -> (None, None, None).
 
-        Mỗi ảnh mẫu được so khớp theo 2 phần, BỎ QUA phần giữa chứa số lượng "xN":
-          - phần TRÁI (icon + chữ "Tường thành")      -> đúng là dòng Tường;
-          - phần PHẢI (giá + icon Vàng/Dầu, chữ trắng nếu đủ / đỏ nếu thiếu)
-                                                       -> loại tài nguyên + đang đủ hay không.
-        Điểm của ảnh mẫu = min(điểm trái, điểm phải); phải >= WALL_ITEM_THRESHOLD.
+        Ảnh mẫu CHỈ được so phần TRÁI (icon + chữ "Tường thành"): bỏ qua số lượng "xN" ở giữa và GIÁ ở
+        bên phải (giá nâng cùng cấp khác nhau giữa làng chính / làng phụ nên không dùng để so sánh).
+        Loại tài nguyên và đủ/thiếu do icon + MÀU chữ giá quyết định: TRẮNG = đủ nâng, ĐỎ = không đủ.
         """
-        best_name, best_pos, best_res, best_score = None, None, None, 0.0
+        best_name, best_pos, best_h, best_hint, best_score = None, None, 0, None, 0.0
         for name, filename, resource in WALL_ITEM_TEMPLATES:
-            for template_path in self._wall_item_variants(filename):   # ảnh gốc + biến thể _2, _3...
-                pos, score = self._match_wall_template(screen_menu, template_path)
+            for template_path in self._wall_item_variants(filename):   # mọi ảnh của nhóm (mọi cấp, _2, _3...)
+                pos, score, h = self._match_wall_template(screen_menu, template_path)
                 if pos is not None and score >= WALL_ITEM_THRESHOLD and score > best_score:
-                    best_name, best_pos, best_res, best_score = name, pos, resource, score
-        if best_pos is not None:
-            self.debug(f"🔍 Khớp dòng {best_name} (điểm {best_score:.2f})")
-        return best_name, best_pos, best_res
+                    best_name, best_pos, best_h, best_hint, best_score = name, pos, h, resource, score
+        if best_pos is None:
+            return None, None, None
+        self.debug(f"🔍 Khớp dòng {best_name} (điểm {best_score:.2f})")
+        # Đủ / thiếu + Vàng / Dầu: chỉ theo icon và MÀU chữ giá tại dòng này
+        try:
+            right = ImageProcessor._analyze_wall_right(screen_menu, int(best_pos[1]), best_h,
+                                                       (best_hint or "").upper() or None)
+        except Exception as e:
+            self.debug(f"[⚠️ CẢNH BÁO] _find_wall_row: không phân tích được màu giá: {e}")
+            return None, None, None
+        rtype = right.get("resource_type")
+        if not right.get("can_upgrade") or rtype not in ("GOLD", "ELIXIR"):
+            self.debug(f"ℹ️ Thấy dòng {best_name} nhưng chữ giá không phải màu TRẮNG (thiếu tài nguyên) -> bỏ qua")
+            return None, None, None
+        resource = rtype.lower()
+        village = best_name.split(" - ")[0]
+        return f"{village} - {'Vàng' if resource == 'gold' else 'Dầu'}", best_pos, resource
 
     def _match_wall_template(self, screen, template_path):
         """
-        So khớp phần trái + phần phải của ảnh mẫu (bỏ phần giữa chứa "xN").
-        Phần trái tìm trên toàn màn hình (tối đa WALL_ROW_CANDIDATES ứng viên); phần phải chỉ
-        kiểm tra tại đúng vị trí tương ứng trên CÙNG dòng đó (lệch tối đa WALL_RIGHT_TOL px).
-        :return: ((x, y) tâm của CẢ dòng, điểm 0..1); (None, 0.0) nếu không khớp / lỗi.
+        So khớp CHỈ phần TRÁI của ảnh mẫu (icon + tên Tường). Bỏ qua phần giữa (xN) và phần phải (GIÁ).
+        :return: ((x, y) tâm của CẢ dòng, điểm 0..1, chiều cao ảnh mẫu); (None, 0.0, 0) nếu không khớp / lỗi.
         """
         try:
             tpl = ImageProcessor.load_template(template_path)   # có cache, không đọc đĩa lặp lại (chỉ đọc, không sửa)
             if tpl is None or screen is None:
-                return None, 0.0
+                return None, 0.0, 0
             h, w = tpl.shape[:2]
             sh, sw = screen.shape[:2]
             lw = max(8, int(w * WALL_ITEM_LEFT_RATIO))
-            rw = max(8, int(w * WALL_ITEM_RIGHT_RATIO))
             if h > sh or w > sw:
-                return None, 0.0
-            left, right = tpl[:, :lw], tpl[:, w - rw:]
-
-            res = cv2.matchTemplate(screen, left, cv2.TM_CCOEFF_NORMED)
+                return None, 0.0, 0
+            res = cv2.matchTemplate(screen, tpl[:, :lw], cv2.TM_CCOEFF_NORMED)
             res = np.nan_to_num(res, nan=-1.0, posinf=-1.0, neginf=-1.0)
-            best_pos, best_score = None, 0.0
-            for _ in range(WALL_ROW_CANDIDATES):
-                _, lscore, _, (lx, ly) = cv2.minMaxLoc(res)
-                if lscore < WALL_ITEM_THRESHOLD:
-                    break
-                # triệt ứng viên này khỏi bản đồ điểm để lần sau lấy ứng viên khác
-                res[max(0, ly - h // 2):ly + h // 2 + 1, max(0, lx - lw // 2):lx + lw // 2 + 1] = -1.0
-
-                ex = lx + w - rw   # vị trí phần phải kỳ vọng trên cùng dòng
-                x1, x2 = max(0, ex - WALL_RIGHT_TOL), min(sw, ex + rw + WALL_RIGHT_TOL)
-                y1, y2 = max(0, ly - WALL_RIGHT_TOL), min(sh, ly + h + WALL_RIGHT_TOL)
-                win = screen[y1:y2, x1:x2]
-                if win.shape[0] < h or win.shape[1] < rw:
-                    continue
-                rscore = float(cv2.minMaxLoc(cv2.matchTemplate(win, right, cv2.TM_CCOEFF_NORMED))[1])
-                score = min(float(lscore), rscore if np.isfinite(rscore) else 0.0)
-                if score > best_score:
-                    best_score, best_pos = score, (min(sw - 1, lx + w // 2), ly + h // 2)
-            return best_pos, best_score
+            _, lscore, _, (lx, ly) = cv2.minMaxLoc(res)
+            if not np.isfinite(lscore) or lscore < WALL_ITEM_THRESHOLD:
+                return None, 0.0, h
+            return (min(sw - 1, lx + w // 2), ly + h // 2), float(lscore), h
         except Exception as e:
             self.debug(f"[⚠️ CẢNH BÁO] _match_wall_template: {e}")
-            return None, 0.0
+            return None, 0.0, 0
 
     def _wall_menu_settings(self):
         """
@@ -1715,34 +1976,32 @@ class BotLogic:
             duration = WALL_MENU_SWIPE_DURATION
         return max(0.45, min(0.95, threshold)), max(1, max_swipes), max(100, duration)
 
+    def _wall_village(self):
+        """Làng đang mở menu Búa để nâng Tường: 'sub' (Làng thợ xây) khi FARM_VILLAGE = builder, ngược lại 'main'.
+        config.json -> WALL_VILLAGE = 'main' | 'sub' ghi đè."""
+        try:
+            v = str(load_json_config().get("WALL_VILLAGE", "")).strip().lower()
+            if v in ("main", "sub"):
+                return v
+        except Exception:
+            pass
+        return "sub" if self._farm_village() == FARM_BUILDER else "main"
+
     def _guess_wall_resource(self, screen, y):
         """
-        Đoán dòng Tường tại độ cao y dùng Vàng hay Dầu + đang ĐỦ tài nguyên không, bằng phần PHẢI
-        (giá + icon, chữ trắng nếu đủ / đỏ nếu thiếu) của 4 ảnh mẫu WALL_ITEM_TEMPLATES, tìm trong
-        dải ngang quanh y. Trả ("gold"/"elixir", điểm) hoặc (None, 0.0) nếu không khớp
-        (không có ảnh mẫu, hoặc thiếu tài nguyên -> chữ đỏ không khớp).
+        Xác định dòng Tường tại độ cao y dùng Vàng hay Dầu + đang ĐỦ tài nguyên không, CHỈ bằng icon và
+        MÀU chữ giá (TRẮNG = đủ, ĐỎ = thiếu). Không so sánh giá trị / chữ số của giá (giá khác nhau theo làng, cấp).
+        Trả ("gold"/"elixir", 1.0) hoặc (None, 0.0) nếu thiếu tài nguyên / không xác định được loại.
         """
-        best_res, best_score = None, 0.0
-        sh, sw = screen.shape[:2]
-        for _name, filename, resource in WALL_ITEM_TEMPLATES:
-            for path in self._wall_item_variants(filename):   # ảnh gốc + biến thể _2, _3...
-                try:
-                    tpl = ImageProcessor.load_template(path)
-                    if tpl is None:
-                        continue
-                    h, w = tpl.shape[:2]
-                    rw = max(8, int(w * WALL_ITEM_RIGHT_RATIO))
-                    right = tpl[:, w - rw:]
-                    y1, y2 = max(0, y - h // 2 - WALL_RIGHT_TOL), min(sh, y + h // 2 + WALL_RIGHT_TOL)
-                    band = screen[y1:y2, :]
-                    if band.shape[0] < h or band.shape[1] < rw:
-                        continue
-                    score = float(cv2.minMaxLoc(cv2.matchTemplate(band, right, cv2.TM_CCOEFF_NORMED))[1])
-                    if np.isfinite(score) and score > best_score:
-                        best_res, best_score = resource, score
-                except Exception as e:
-                    self.debug(f"[⚠️ CẢNH BÁO] _guess_wall_resource: {e}")
-        return (best_res, best_score) if best_score >= WALL_ITEM_THRESHOLD - 0.10 else (None, 0.0)
+        try:
+            right = ImageProcessor._analyze_wall_right(screen, int(y), 0, None)
+        except Exception as e:
+            self.debug(f"[⚠️ CẢNH BÁO] _guess_wall_resource: {e}")
+            return None, 0.0
+        rtype = right.get("resource_type")
+        if right.get("can_upgrade") and rtype in ("GOLD", "ELIXIR"):
+            return rtype.lower(), 1.0
+        return None, 0.0
 
     def _find_wall_row_hybrid(self, screen_menu, threshold):
         """
@@ -1753,7 +2012,7 @@ class BotLogic:
         `threshold` (WALL_MATCH_THRESHOLD) chỉ dùng cho lần quét thẻ Tường này.
         :return: (tên, (x, y), resource) hoặc (None, None, None).
         """
-        cands = ImageProcessor.find_wall_cards_in_menu(screen_menu, threshold=threshold)
+        cands = ImageProcessor.find_wall_cards_in_menu(screen_menu, threshold=threshold, village=self._wall_village())
         for c in cands:
             resource, rscore = self._guess_wall_resource(screen_menu, c["y"])
             if resource is None:
@@ -1997,10 +2256,10 @@ class BotLogic:
                     break
 
                 # Quét 2 vùng: TRÁI định vị dòng Tường (Y) -> PHẢI nhận Vàng/Dầu + chữ giá trắng / đỏ / xám
-                cards = ImageProcessor.find_wall_cards_in_menu(screen_menu, threshold=wall_threshold)
+                cards = ImageProcessor.find_wall_cards_in_menu(screen_menu, threshold=wall_threshold, village=self._wall_village())
                 if cards:
                     self.debug("🧱 Quét được " + " | ".join(
-                        f"y={c['y']} {c['resource_type']} {self._wall_card_state(c)}" for c in cards))
+                        f"y={c['y']} {c.get('wall_label', '')} {c['resource_type']} {self._wall_card_state(c)}" for c in cards))
                     ready = [c for c in cards if self._wall_card_state(c) == WALL_CAN_UPGRADE]
                     out_of = [c for c in cards if self._wall_card_state(c) == WALL_OUT_OF_RESOURCE]
                     if out_of and (stop_mode == "ANY" or not ready):
@@ -2019,7 +2278,7 @@ class BotLogic:
                     resource = card["resource_type"].lower()          # "gold" | "elixir"
                     label = "Vàng" if resource == "gold" else "Dầu"
                     name, row_pos = f"Tường - {label}", card["click_pos"]
-                    self.debug(f"🎯 Thẻ Tường y={card['y']} dùng {label} (CAN_UPGRADE) -> bấm {row_pos} | {card.get('debug')}")
+                    self.debug(f"🎯 {card.get('wall_label', 'Tường')} y={card['y']} dùng {label} (CAN_UPGRADE) -> bấm {row_pos} | {card.get('debug')}")
 
                     if not self._click_upgrade_wall_row(name, row_pos, resource):
                         # Bấm nhầm công trình khác: UI nhầm đã được đóng -> dừng lượt này, không đếm là đã nâng
@@ -2086,16 +2345,17 @@ class BotLogic:
 
                 try:
                     state = "UNKNOWN"
+                    home_states = ("HOME_VILLAGE", "BUILDER_HOME")   # BUILDER_HOME: nâng Tường ở Làng phụ
                     for attempt in range(3):
                         screen_check = self._capture(fresh=True)
                         state = self.detect_initial_state(screen_check, quiet=True)
-                        if state == "HOME_VILLAGE":
+                        if state in home_states:
                             break
                         self.debug(f"⚠️ Màn hình chưa sạch hoàn toàn (trạng thái: {state}) -> "
                                  f"bấm thoát thêm lần nữa trước khi Zoom ({attempt + 1}/3)")
                         self._close_menu(times=2)
                         time.sleep(0.4)
-                    if state == "HOME_VILLAGE":
+                    if state in home_states:
                         self.debug("🏠 Đã về Làng chính sạch sau nâng Tường (zoom out sẽ làm ngay trước khi đi tấn công)")
                     else:
                         self.debug("⚠️ Vẫn chưa về Làng chính sạch sau nâng Tường -> trả quyền cho vòng lặp chính")
@@ -2633,8 +2893,12 @@ class BotLogic:
         :return: "STOP" | "NO_BUILDER" | "SUCCESS" | "CONTINUE"
         """
         try:
+            if self._farm_village() == FARM_BUILDER:
+                return "CONTINUE"      # farm Làng phụ: không nâng Tường / không đọc thợ, vòng chính đi thẳng vào check_and_search_match
             # Chỉ coi là Làng chính khi thấy nút 'Chiến đấu'. Nếu đang ở menu tìm trận / làng địch / trong trận
             # thì KHÔNG đổi Banner và KHÔNG chạy lịch nâng Tường (các bước đó do check_and_search_match lo).
+            if self._in_builder_village(screen):
+                return "CONTINUE"      # thấy nút Tấn công làng phụ = đang ở Làng thợ xây, KHÔNG phải Làng chính
             if not _find_any(screen, TPL_BATTLE, threshold=0.75):
                 return "CONTINUE"
             self.set_status("🏠 Đang ở Làng chính", "home")
@@ -2724,8 +2988,21 @@ class BotLogic:
         """
         try:
             self._ensure_stall_monitor()   # đánh dấu 'nhịp' + bật luồng giám sát kẹt
+            # --- Chế độ farm (config.json -> FARM_VILLAGE, chọn trên GUI tab 'Cấu hình Game') ---
+            farm = self._farm_village()
+            self._note_farm_mode(farm)
+            if farm == FARM_BUILDER:
+                return self.check_and_search_builder(screen)
             # --- Trước mọi thao tác: có popup mất kết nối / kẹt không? ---
             if self._guard_connection(screen):
+                return
+
+            # --- Chọn farm Làng chính nhưng game đang ở Làng phụ (thấy nút Tấn công làng phụ) -> KHÔNG bấm gì ở làng phụ,
+            #     tự zoom out + lướt tìm thuyền để về Làng chính (cần ảnh boat_to_main*.png, crop_tool mục 28) ---
+            if self._in_builder_village(screen):
+                self._idle_since = None
+                self._builder_warn("in_builder", "⚠️ Đang chọn farm LÀNG CHÍNH nhưng game đang ở LÀNG THỢ XÂY -> tự tìm thuyền về Làng chính")
+                self._go_to_main_village(screen)
                 return
 
             # --- Bước 1/4: Làng chính -> bấm "Chiến đấu" ---
@@ -2859,6 +3136,15 @@ class BotLogic:
                         self._guard_connection()   # sau khi bấm Next: kiểm tra ngay popup mất kết nối
                 return
 
+            # Chọn farm Làng chính nhưng game đang ở Làng phụ (thấy nút Tấn công làng phụ) -> chỉ cảnh báo, không đụng gì
+            if (_template_names_exist(TPL_BUILDER_ATTACK)
+                    and _find_any(screen, TPL_BUILDER_ATTACK, threshold=self._builder_threshold())):
+                self._idle_since = None
+                self.set_status("⚠️ Đang ở Làng phụ nhưng chọn farm Làng chính", "warn")
+                self._builder_warn("in_builder", "⚠️ Đang chọn farm LÀNG CHÍNH nhưng game đang ở LÀNG THỢ XÂY -> "
+                                                 "hãy tự đi thuyền về Làng chính (hoặc đổi lựa chọn làng farm)")
+                return
+
             # Không khớp nút nào ở 4 bước trên: đang ở trong trận / màn hình có nút Đầu hàng mà không thấy Next
             # (vào trận không đủ tài nguyên để đánh) -> Đầu hàng sau SURRENDER_IDLE_SECONDS giây
             if self._surrender_idle_check(screen):
@@ -2869,6 +3155,570 @@ class BotLogic:
 
         except Exception as e:
             self.log(f"[❌ LỖI] check_and_search_match: {e}")
+
+    # ------------------------------------------------------------------
+    # 4d. LÀNG PHỤ (Làng thợ xây) - Tấn công -> Xác nhận -> thả quân -> chờ Tăng tốc -> Về làng -> lặp lại
+    # ------------------------------------------------------------------
+    def _farm_village(self):
+        """FARM_MAIN | FARM_BUILDER theo config.json -> FARM_VILLAGE (GUI tab 'Cấu hình Game'). Lỗi / thiếu -> làng chính."""
+        try:
+            value = str(load_json_config().get("FARM_VILLAGE", FARM_MAIN)).strip().lower()
+        except Exception:
+            return FARM_MAIN
+        return FARM_BUILDER if value in (FARM_BUILDER, "sub") else FARM_MAIN
+
+    def _note_farm_mode(self, mode):
+        """Ghi log 1 lần mỗi khi đổi chế độ farm; đổi chế độ thì đếm lại các bộ đếm kẹt."""
+        last = getattr(self, "_farm_mode_logged", None)
+        if mode == last:
+            return
+        self._farm_mode_logged = mode
+        if last is None:
+            self.log("🛠️ Chế độ farm: LÀNG PHỤ (Thợ xây) - tấn công luôn, không xét tài nguyên" if mode == FARM_BUILDER
+                     else "🏘️ Chế độ farm: LÀNG CHÍNH")
+            return
+        self.log("🛠️ Đã đổi sang farm LÀNG PHỤ (Thợ xây). Hãy để game đang ở Làng thợ xây." if mode == FARM_BUILDER
+                 else "🏘️ Đã đổi sang farm LÀNG CHÍNH. Hãy để game đang ở Làng chính.")
+        self._idle_since = None
+        self._watchdog_reset()
+
+    def _builder_cfg_float(self, key, default):
+        try:
+            value = float(load_json_config().get(key, default))
+            return value if value >= 0 else default
+        except Exception:
+            return default
+
+    def _builder_threshold(self):
+        return min(0.99, max(0.4, self._builder_cfg_float("BUILDER_BTN_THRESHOLD", BUILDER_BTN_THRESHOLD)))
+
+    def _builder_warn(self, key, message):
+        """Cảnh báo (log lên UI) nhưng giãn cách BUILDER_WARN_GAP giây mỗi loại để không spam."""
+        now = time.time()
+        warned = getattr(self, "_builder_warned", None)
+        if warned is None:
+            warned = self._builder_warned = {}
+        if now - warned.get(key, 0.0) >= BUILDER_WARN_GAP:
+            warned[key] = now
+            self.log(message)
+
+    @staticmethod
+    def _button_looks_disabled(screen, pos, half_w=48, half_h=22):
+        """True nếu nút quanh `pos` (toạ độ 960x540) là nút XÁM vô hiệu: gần như không có điểm ảnh bão hòa màu.
+        Nút bấm được (xanh lá / cam) có nhiều điểm ảnh màu; nút xám (hết thưởng) thì không."""
+        try:
+            h, w = screen.shape[:2]
+            sx, sy = w / 960.0, h / 540.0
+            x, y = pos
+            roi = screen[max(0, int((y - half_h) * sy)):int((y + half_h) * sy),
+                         max(0, int((x - half_w) * sx)):int((x + half_w) * sx)]
+            if roi.size == 0:
+                return False
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+            colored = float(((hsv[..., 1] > 90) & (hsv[..., 2] > 100)).mean())
+            try:
+                th = float(load_json_config().get("BUILDER_BTN_COLOR_MIN", BUILDER_BTN_COLOR_MIN))
+            except Exception:
+                th = BUILDER_BTN_COLOR_MIN
+            return colored < th
+        except Exception:
+            return False
+
+    def _reward_confirm_blocked(self):
+        return time.time() < getattr(self, "_reward_block_until", 0.0)
+
+    def _reward_confirm_give_up(self, why):
+        """Popup nhận thưởng kẹt (nút xám / bấm hoài không đóng): ghi log, đóng popup, tạm dừng nhận thưởng một lúc."""
+        self.log(f"🛠️ Làng phụ: {why} -> bỏ qua nhận thưởng {BUILDER_REWARD_BLOCK:g}s, đóng popup")
+        self._reward_block_until = time.time() + BUILDER_REWARD_BLOCK
+        self._builder_claim_at = time.time()
+        self._reward_taps = []
+        self._close_menu()
+
+    def _tap_reward_confirm(self, screen, pos):
+        """Bấm 'Xác nhận nhận thưởng' có chặn spam. True = đã bấm; False = nút xám / đã bấm quá nhiều lần (đã đóng popup, tạm dừng)."""
+        if self._button_looks_disabled(screen, pos):
+            self._reward_confirm_give_up("nút nhận thưởng đang XÁM (không có thưởng để nhận)")
+            return False
+        now = time.time()
+        taps = [t for t in getattr(self, "_reward_taps", []) if now - t < BUILDER_REWARD_CONFIRM_WINDOW]
+        if len(taps) >= BUILDER_REWARD_CONFIRM_MAX_TAPS:
+            self._reward_confirm_give_up(f"đã bấm Xác nhận {len(taps)} lần mà popup vẫn còn")
+            return False
+        taps.append(now)
+        self._reward_taps = taps
+        self.log("🛠️ Làng phụ: bấm Xác nhận nhận thưởng")
+        self._tap(pos, "Xác nhận nhận thưởng làng phụ")
+        return True
+
+    def check_and_search_builder(self, screen):
+        """
+        Luồng LÀNG PHỤ (Làng thợ xây), mỗi lần gọi xử lý đúng 1 màn hình. KHÔNG soi tài nguyên, KHÔNG bấm Next:
+          1) popup Xác nhận nhận thưởng (builder_confirm_reward_btn*) -> bấm            [tùy chọn, cần ảnh mẫu]
+          2) popup Xác nhận tấn công   (builder_confirm_attack_btn*)  -> bấm -> chờ vào trận -> thả quân ->
+                                          chờ Tăng tốc / nút Về làng -> Về làng (dùng lại execute_deployment)
+          3) nút Nhận thưởng           (builder_claim_reward_btn*)    -> bấm, tối đa 1 lần / BUILDER_CLAIM_COOLDOWN  [tùy chọn]
+          4) nút Tấn công              (builder_attack_btn*)          -> bấm, rồi sang bước 2 ngay khi popup hiện
+        Thứ tự trên cố ý xét popup TRƯỚC nút Tấn công vì popup đè lên màn hình làng phụ.
+        Về làng xong, vòng chính gọi lại hàm này, thấy nút Tấn công là đánh tiếp ngay.
+        """
+        try:
+            self._ensure_stall_monitor()
+            if self._guard_connection(screen):
+                return
+            th = self._builder_threshold()
+
+            missing = [n for n, t in (("builder_attack_btn.png (crop_tool mục 23)", TPL_BUILDER_ATTACK),
+                                      ("builder_confirm_attack_btn.png (crop_tool mục 24)", TPL_BUILDER_CONFIRM_ATTACK))
+                       if not _template_names_exist(t)]
+            if missing:
+                self._builder_warn("missing", "⚠️ Farm Làng phụ cần ảnh mẫu trong assets/: " + " và ".join(missing))
+                return
+
+            has_claim = _template_names_exist(TPL_BUILDER_CLAIM)
+            has_claim_confirm = _template_names_exist(TPL_BUILDER_CONFIRM_REWARD)
+
+            # --- 1) Popup xác nhận nhận thưởng ---
+            if has_claim_confirm and not self._reward_confirm_blocked():
+                pos = _find_any(screen, TPL_BUILDER_CONFIRM_REWARD, threshold=th)
+                if pos:
+                    if self._tap_reward_confirm(screen, pos):
+                        self._sleep_interruptible(1.0)
+                    return
+
+            # --- 2) Popup xác nhận tấn công -> vào trận ---
+            pos = _find_any(screen, TPL_BUILDER_CONFIRM_ATTACK, threshold=th)
+            if pos:
+                self.set_status("🛠️ Làng phụ: đang vào trận...", "search")
+                self.log("🛠️ Làng phụ: bấm Xác nhận tấn công")
+                self._idle_since = None
+                self._tap(pos, "Xác nhận tấn công làng phụ")
+                self._builder_battle()
+                return
+
+            # --- 2b) Đủ số trận -> NHẬN THƯỞNG trước rồi mới NÂNG TƯỜNG (chỉ khi đang ở màn Làng phụ, không có popup) ---
+            if self._builder_wall_due() and (
+                    _find_any(screen, TPL_BUILDER_ATTACK, threshold=th)
+                    or (has_claim and _find_any(screen, TPL_BUILDER_CLAIM, threshold=th))):
+                self._builder_wall_upgrade(screen)
+                return
+
+            # --- 3) Nhận thưởng (nếu có ảnh mẫu) ---
+            if has_claim and not self._reward_confirm_blocked() and time.time() - getattr(self, "_builder_claim_at", 0.0) >= BUILDER_CLAIM_COOLDOWN:
+                pos = _find_any(screen, TPL_BUILDER_CLAIM, threshold=th)
+                if pos:
+                    self._builder_claim_at = time.time()
+                    self.log("🛠️ Làng phụ: bấm Nhận thưởng")
+                    self._tap(pos, "Nhận thưởng làng phụ")
+                    if has_claim_confirm:
+                        nxt = self._poll_screen((TPL_BUILDER_CONFIRM_REWARD,))
+                        if nxt is not None:
+                            return self.check_and_search_builder(nxt)
+                    return
+
+            # --- 4) Nút Tấn công ---
+            pos = _find_any(screen, TPL_BUILDER_ATTACK, threshold=th)
+            if pos:
+                # Zoom out NGAY TRƯỚC khi đi tấn công (giống Làng chính; đã qua bước nhận thưởng / nâng Tường, màn Làng phụ sạch)
+                if self._zoom_before_attack_enabled():
+                    self.set_status("🔭 Làng phụ: đang zoom out...", "search")
+                    if not self._ensure_zoomed_out():
+                        return   # chưa zoom được -> KHÔNG bấm Tấn công; vòng chính chạy lại sẽ zoom lại
+                    scr_z = self._capture(fresh=True)
+                    if scr_z is None:
+                        return
+                    pos = _find_any(scr_z, TPL_BUILDER_ATTACK, threshold=th)
+                    if not pos:
+                        return   # màn hình đổi bất thường sau zoom -> để vòng chính nhận diện lại
+                self.set_status("🛠️ Làng phụ: đang bấm Tấn công...", "search")
+                self.log("🛠️ Làng phụ: bấm Tấn công (không xét tài nguyên)")
+                self._idle_since = None
+                self._tap(pos, "Tấn công làng phụ")
+                nxt = self._poll_screen((TPL_BUILDER_CONFIRM_ATTACK,))   # sang bước 2 ngay khi popup hiện
+                if nxt is not None:
+                    return self.check_and_search_builder(nxt)
+                return
+
+            # --- Không thấy nút nào của làng phụ ---
+            # Phân biệt làng bằng nút Tấn công: thấy nút 'Chiến đấu' của làng chính (mà không có nút Tấn công làng phụ) = đang ở Làng chính
+            if _find_any(screen, TPL_BATTLE, threshold=0.75):
+                self._go_to_builder_base(screen)
+            else:
+                self.debug("🛠️ Làng phụ: chưa nhận ra màn hình hiện tại (chờ nút Tấn công / popup)")
+        except Exception as e:
+            self.log(f"[❌ LỖI] check_and_search_builder: {e}")
+
+    # ---------------------------------------------------------------- Nâng Tường ở Làng phụ
+    def _builder_wall_enabled(self):
+        """Công tắc nâng Tường Làng phụ (config.json -> ENABLE_BUILDER_WALL_UPGRADE, GUI tab 'Cấu hình Game'). Lỗi -> tắt."""
+        try:
+            return bool(load_json_config().get("ENABLE_BUILDER_WALL_UPGRADE", False))
+        except Exception:
+            return False
+
+    def _builder_wall_every(self):
+        """Số trận Làng phụ giữa 2 lần nâng Tường (mặc định 5)."""
+        try:
+            return max(1, int(load_json_config().get("BUILDER_WALL_EVERY_BATTLES", BUILDER_WALL_EVERY_BATTLES)))
+        except Exception:
+            return BUILDER_WALL_EVERY_BATTLES
+
+    def _builder_battles_until_wall(self):
+        """Số trận Làng phụ còn lại tới lượt nâng Tường (0 = đã tới lượt)."""
+        return max(0, self._builder_wall_every() - getattr(self, "_builder_wall_battles", 0))
+
+    def _builder_wall_due(self):
+        return self._builder_wall_enabled() and self._builder_battles_until_wall() == 0
+
+    def _find_claim_btn(self, screen):
+        """Tâm nút/xe Nhận thưởng làng phụ (builder_claim_reward_btn*.png) trên `screen`, hoặc None."""
+        if screen is None:
+            return None
+        return _find_any(screen, TPL_BUILDER_CLAIM, threshold=self._builder_threshold())
+
+    def _search_claim_reward(self, screen):
+        """
+        Tìm nút Nhận thưởng: (1) thấy ngay trên màn hình -> dùng luôn; (2) không thấy -> zoom out làng rồi lướt bản đồ
+        trái/phải/lên/xuống (cùng đường lướt như tìm thuyền) tới khi thấy. Quét hết bản đồ vẫn không thấy = không có thưởng -> None.
+        Chỉ quét bản đồ tối đa 1 lần / BUILDER_CLAIM_SEARCH_GAP giây. Trả tâm nút (đã chụp lại để lấy vị trí mới nhất) hoặc None.
+        """
+        pos = self._find_claim_btn(screen)
+        if pos:
+            return pos
+        try:
+            cfg = load_json_config()
+            enabled = bool(cfg.get("BUILDER_CLAIM_SEARCH", BUILDER_CLAIM_SEARCH))
+            zoom = bool(cfg.get("BUILDER_CLAIM_ZOOM_OUT", BUILDER_CLAIM_ZOOM_OUT))
+        except Exception:
+            enabled, zoom = BUILDER_CLAIM_SEARCH, BUILDER_CLAIM_ZOOM_OUT
+        if not enabled:
+            return None
+        gap = self._builder_cfg_float("BUILDER_CLAIM_SEARCH_GAP", BUILDER_CLAIM_SEARCH_GAP)
+        if time.time() - getattr(self, "_builder_claim_search_at", 0.0) < gap:
+            self.debug("🛠️ Làng phụ: vừa quét bản đồ tìm nút Nhận thưởng cách đây chưa lâu -> bỏ qua lần quét này")
+            return None
+        self.set_status("🔎 Làng phụ: đang tìm nút Nhận thưởng...", "search")
+        self.log("🔎 Làng phụ: chưa thấy nút Nhận thưởng trên màn hình -> zoom out + lướt bản đồ tìm")
+        try:
+            if zoom:
+                self._zoom_out_village()
+            scr = self._capture(fresh=True)
+            pos = self._pan_search(scr, self._find_claim_btn, "nút Nhận thưởng")
+            if pos is not None:
+                scr = self._capture(fresh=True)          # camera có thể còn trôi nhẹ -> lấy vị trí MỚI NHẤT rồi mới bấm
+                pos = self._find_claim_btn(scr) or pos
+        finally:
+            self._builder_claim_search_at = time.time()
+        if pos is None and not self._stop_requested():
+            self.log("🛠️ Làng phụ: lướt hết bản đồ không thấy nút Nhận thưởng (không có thưởng, hoặc nên cắt thêm ảnh "
+                     "builder_claim_reward_btn ở mức zoom xa nhất - crop_tool mục 25)")
+        return pos
+
+    def _builder_claim_before_wall(self, screen):
+        """
+        Nhận thưởng Làng phụ TRƯỚC khi nâng Tường: tìm nút Nhận thưởng (builder_claim_reward_btn*) - không thấy trên màn hình thì
+        zoom out + lướt bản đồ tìm (xem _search_claim_reward) - rồi bấm, và bấm Xác nhận (builder_confirm_reward_btn*) nếu có.
+        Không tìm thấy = không có thưởng để nhận -> bỏ qua.
+        :return: True nếu đã bấm Nhận thưởng.
+        """
+        th = self._builder_threshold()
+        if self._reward_confirm_blocked():
+            self.debug("🛠️ Làng phụ: vừa thấy nút nhận thưởng bị xám/kẹt -> bỏ qua nhận thưởng lần này")
+            return False
+        if not _template_names_exist(TPL_BUILDER_CLAIM):
+            self._builder_warn("no_claim", "⚠️ Chưa có ảnh nút Nhận thưởng làng phụ (crop_tool mục 25) -> "
+                                           "không nhận thưởng được trước khi nâng Tường, vẫn tiếp tục nâng Tường")
+            return False
+        pos = self._search_claim_reward(screen)
+        if not pos:
+            self.debug("🛠️ Làng phụ: không có thưởng để nhận -> sang nâng Tường")
+            return False
+        self._builder_claim_at = time.time()
+        self.log("🛠️ Làng phụ: nhận thưởng trước khi nâng Tường")
+        self._tap(pos, "Nhận thưởng làng phụ")
+        if _template_names_exist(TPL_BUILDER_CONFIRM_REWARD):
+            nxt = self._poll_screen((TPL_BUILDER_CONFIRM_REWARD,))
+            cpos = _find_any(nxt, TPL_BUILDER_CONFIRM_REWARD, threshold=th) if nxt is not None else None
+            if cpos:
+                self._tap_reward_confirm(nxt, cpos)
+        self._sleep_interruptible(1.0)
+        return True
+
+    def _builder_wall_upgrade(self, screen):
+        """
+        Đủ BUILDER_WALL_EVERY_BATTLES (5) trận ở Làng phụ: NHẬN THƯỞNG (Xác nhận 1 lần) -> bấm tọa độ thoát giao diện lạ ->
+        thấy nút Tấn công làng phụ (= đang ở Làng phụ) -> bấm Búa -> NÂNG TƯỜNG
+        (dùng lại run_wall_upgrade_cycle: mở menu Búa, quét thẻ Tường, Nâng + Xác nhận). Xong (kể cả không nâng được)
+        thì đặt lại bộ đếm: đánh đủ 5 trận nữa mới thử lại.
+        """
+        every = self._builder_wall_every()
+        self.set_status("🧱 Làng phụ: nhận thưởng rồi nâng Tường...", "wall")
+        self.log(f"🧱 Làng phụ: đã đủ {every} trận -> nhận thưởng trước, rồi nâng Tường")
+        if self._builder_claim_before_wall(screen):
+            # Đã bấm Xác nhận nhận thưởng (đúng 1 lần) -> bấm tọa độ an toàn để thoát mọi giao diện lạ còn sót (popup thưởng...)
+            self.debug("🛠️ Làng phụ: bấm tọa độ thoát giao diện lạ sau khi nhận thưởng")
+            self._close_menu()
+        # Nhận diện làng bằng NÚT TẤN CÔNG LÀNG PHỤ: thấy = đang ở Làng phụ -> mới bấm Búa nâng Tường
+        # (nút Búa có ở cả 2 làng nên không dùng nó để phân biệt).
+        if self._poll_screen((TPL_BUILDER_ATTACK,), timeout=BUILDER_WALL_CLAIM_WAIT) is None:
+            scr_now = self._capture(fresh=True)
+            if scr_now is not None and _find_any(scr_now, TPL_BATTLE, threshold=0.75):
+                self.log("⚠️ Làng phụ: thấy nút Chiến đấu mà không thấy nút Tấn công làng phụ -> đang ở LÀNG CHÍNH, "
+                         "không bấm Búa nâng Tường làng phụ")
+            else:
+                self.log("⚠️ Làng phụ: chưa thấy nút Tấn công làng phụ (giao diện lạ còn đè lên?) -> hoãn nâng Tường, "
+                         "thử lại ở vòng sau")
+            return
+        try:
+            continuous = bool(load_json_config().get("WALL_UPGRADE_CONTINUOUS", True))
+        except Exception:
+            continuous = True
+        walls_done = self.run_wall_upgrade_cycle(max_walls=None if continuous else WALL_UPGRADE_MAX_PER_CYCLE)
+        if self._wall_stop_reason == "MENU_NOT_OPENED":
+            self._builder_warn("no_hammer", "⚠️ Làng phụ: không mở được menu Búa -> hãy cắt thêm 1 ảnh nút Búa của "
+                                            "Làng thợ xây (crop_tool mục 7, bot tự nạp mọi ảnh button_build*.png)")
+        self.log(f"↩️ Làng phụ: đã nâng {walls_done} khúc Tường (dừng: {self._wall_stop_reason}) -> "
+                 f"đi đánh, thử lại sau {every} trận")
+        self._builder_wall_battles = 0
+        if walls_done > 0:
+            self.stats["walls"] += walls_done
+        self.update_ui_stats()
+        self.set_status("🛠️ Đang ở Làng thợ xây", "home")
+
+    def _builder_wait_battle_ready(self):
+        """
+        Sau khi bấm Xác nhận tấn công: chờ game tải xong vào trận = nút Tấn công + popup Xác nhận của làng phụ
+        đã biến mất BUILDER_LOAD_CONFIRM_FRAMES khung liên tiếp, rồi nghỉ thêm BUILDER_DEPLOY_SETTLE giây cho
+        thanh quân hiện đủ. Hết BUILDER_LOAD_TIMEOUT mà vẫn còn các nút đó = chưa vào được trận -> False (KHÔNG thả quân).
+        """
+        th = self._builder_threshold()
+        timeout = self._builder_cfg_float("BUILDER_LOAD_TIMEOUT", BUILDER_LOAD_TIMEOUT)
+        settle = self._builder_cfg_float("BUILDER_DEPLOY_SETTLE", BUILDER_DEPLOY_SETTLE)
+        deadline = time.time() + timeout
+        gone = 0
+        while time.time() < deadline:
+            if self._stop_requested():
+                return False
+            scr = self._capture(fresh=True)
+            if scr is None:
+                self._sleep_interruptible(BUILDER_LOAD_POLL)
+                continue
+            if self._guard_connection_throttled(2.0, scr):
+                self.log("🔌 Mất kết nối khi chờ vào trận làng phụ -> đã phục hồi, thoát vòng chờ")
+                return False
+            still_menu = bool(_find_any(scr, TPL_BUILDER_ATTACK, threshold=th)
+                              or _find_any(scr, TPL_BUILDER_CONFIRM_ATTACK, threshold=th))
+            gone = 0 if still_menu else gone + 1
+            if gone >= BUILDER_LOAD_CONFIRM_FRAMES:
+                self.debug(f"🛠️ Làng phụ: đã vào trận -> chờ {settle:g}s cho thanh quân hiện đủ rồi thả quân")
+                return self._sleep_interruptible(settle)
+            self._sleep_interruptible(BUILDER_LOAD_POLL)
+        self.log(f"⚠️ Làng phụ: sau {timeout:g}s vẫn chưa vào được trận -> không thả quân, kiểm tra lại ở vòng chính")
+        return False
+
+    def _builder_wait_first_round_start(self):
+        """
+        Làng phụ: màn đếm ngược 'Trận chiến bắt đầu trong vòng: NNgi' cũng hiện ở ĐẦU LƯỢT 1 - thả quân lúc này là thả hụt.
+        Chờ banner HIỆN (tối đa BUILDER_FIRST_BANNER_APPEAR_TIMEOUT s; không hiện = trận không có đếm ngược -> thả luôn) rồi chờ banner
+        BIẾN MẤT (_wait_round_start) + BUILDER_ROUND_SETTLE giây mới thả lượt 1. Không có ảnh banner / tắt BUILDER_WAIT_FIRST_BANNER -> bỏ qua.
+        :return: True nếu nên thả quân; False nếu có lệnh dừng / mất kết nối.
+        """
+        try:
+            if not bool(load_json_config().get("BUILDER_WAIT_FIRST_BANNER", BUILDER_WAIT_FIRST_BANNER)):
+                return True
+        except Exception:
+            pass
+        if not self._next_round_enabled():
+            return True
+        self.set_status("⏳ Làng phụ: chờ hết đếm ngược đầu trận...", "wait")
+        deadline = time.time() + BUILDER_FIRST_BANNER_APPEAR_TIMEOUT
+        seen = 0
+        while time.time() < deadline:
+            if self._stop_requested():
+                return False
+            scr = self._capture(fresh=True)
+            if scr is not None:
+                seen = seen + 1 if self._see_round_banner(scr) else 0
+                if seen >= BUILDER_ROUND_CONFIRM_FRAMES:
+                    break
+            self._sleep_interruptible(0.4)
+        if seen < BUILDER_ROUND_CONFIRM_FRAMES:
+            self.log(f"ℹ️ Làng phụ: không thấy banner đếm ngược đầu trận sau {BUILDER_FIRST_BANNER_APPEAR_TIMEOUT:g}s -> thả quân luôn")
+            return True
+        try:
+            deploy_now = bool(load_json_config().get("BUILDER_DEPLOY_ON_BANNER", BUILDER_DEPLOY_ON_BANNER))
+        except Exception:
+            deploy_now = BUILDER_DEPLOY_ON_BANNER
+        if deploy_now:
+            self.log("⚡ Làng phụ: thấy banner đếm ngược 'Trận chiến bắt đầu trong vòng' -> THẢ LUÔN lượt 1")
+            self._deployed_on_banner = True     # execute_deployment sẽ thả bù khi banner hết nếu lính chưa xuống
+            return True
+        self.log("⏳ Làng phụ: thấy banner đếm ngược 'Trận chiến bắt đầu trong vòng' -> chờ hết đếm ngược rồi mới thả lượt 1")
+        if not self._wait_round_start():
+            return False
+        self.log("✅ Làng phụ: hết đếm ngược -> thả quân lượt 1")
+        return self._sleep_interruptible(BUILDER_ROUND_SETTLE)
+
+    def _builder_battle(self):
+        """Chờ vào trận -> thả quân -> chờ Tăng tốc / Về làng (execute_deployment, y như làng chính) -> tính thống kê."""
+        if not self._builder_wait_battle_ready():
+            return False
+        if not self._builder_wait_first_round_start():     # chờ hết đếm ngược đầu trận (banner) rồi mới thả lượt 1
+            return False
+        if self.deploy_troops():
+            self.stats["battles"] += 1
+            if self._builder_wall_enabled():      # chỉ đếm khi bật nâng Tường làng phụ -> bật xong mới tính "đủ 5 trận"
+                self._builder_wall_battles = getattr(self, "_builder_wall_battles", 0) + 1
+            self.update_ui_stats()
+            return True
+        self.log("⚠️ Trận làng phụ gặp sự cố -> không tính vào thống kê")
+        return False
+
+    # ---------------------------------------------------------------- Đi thuyền: Làng chính -> Làng thợ xây
+    def _boat_threshold(self):
+        return min(0.99, max(0.4, self._builder_cfg_float("BOAT_THRESHOLD", BOAT_THRESHOLD)))
+
+    def _find_boat(self, screen, tpl=TPL_BOAT):
+        """Tâm thuyền (x, y) khớp 1 trong các ảnh `tpl` (mặc định boat_to_builder*.png), hoặc None."""
+        if screen is None:
+            return None
+        return _find_any(screen, tpl, threshold=self._boat_threshold())
+
+    def _pan_camera(self, hx, hy, dx, dy):
+        """Kéo bản đồ 1 nhịp theo hướng (hx, hy) = -1/0/1; đường kéo đối xứng quanh tâm màn hình (960x540), tránh thanh UI."""
+        cx, cy = 480, 270
+        vx, vy = hx * dx, hy * dy
+        self._swipe((int(cx - vx / 2), int(cy - vy / 2)), (int(cx + vx / 2), int(cy + vy / 2)),
+                    duration=int(self._builder_cfg_float("BOAT_SWIPE_DURATION", BOAT_SWIPE_DURATION)))
+
+    def _pan_search(self, screen, find_fn, what):
+        """
+        Tìm 1 vật trên bản đồ: thấy ngay trên `screen` thì trả luôn; không thì lướt bản đồ theo BOAT_PAN_PLAN (trái/phải/lên/xuống),
+        quét bằng `find_fn(ảnh)` sau mỗi nhịp. Trả (x, y) hoặc None. Dùng chung cho tìm thuyền và tìm nút Nhận thưởng.
+        """
+        pos = find_fn(screen)
+        if pos:
+            return pos
+        dx = int(self._builder_cfg_float("BOAT_PAN_DX", BOAT_PAN_DX))
+        dy = int(self._builder_cfg_float("BOAT_PAN_DY", BOAT_PAN_DY))
+        total = sum(n for _hx, _hy, n in BOAT_PAN_PLAN)
+        step = 0
+        for hx, hy, n in BOAT_PAN_PLAN:
+            for _ in range(n):
+                step += 1
+                if self._stop_requested():
+                    return None
+                self._pan_camera(hx, hy, dx, dy)
+                self._sleep_interruptible(BOAT_PAN_SETTLE)
+                scr = self._capture(fresh=True)
+                if scr is None:
+                    continue
+                if self._guard_connection_throttled(2.0, scr):
+                    self.log(f"🔌 Mất kết nối khi lướt tìm {what} -> đã phục hồi, thoát vòng tìm")
+                    return None
+                pos = find_fn(scr)
+                if pos:
+                    self.debug(f"🔎 Thấy {what} sau {step}/{total} lần kéo bản đồ")
+                    return pos
+        return None
+
+    def _find_boat_with_pan(self, screen, tpl=TPL_BOAT):
+        """Tìm thuyền ngay trên `screen`; không thấy thì lướt bản đồ theo BOAT_PAN_PLAN, quét sau mỗi nhịp. Trả tâm thuyền hoặc None."""
+        return self._pan_search(screen, lambda scr: self._find_boat(scr, tpl), "thuyền")
+
+    def _builder_wait_arrival(self, timeout):
+        """Sau khi bấm thuyền: chờ tới khi thấy nút Tấn công của làng phụ (= đã sang Làng thợ xây). True nếu tới nơi."""
+        th = self._builder_threshold()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._stop_requested():
+                return False
+            scr = self._capture(fresh=True)
+            if scr is not None:
+                if _find_any(scr, TPL_BUILDER_ATTACK, threshold=th):
+                    return True
+                if self._guard_connection_throttled(3.0, scr):
+                    return False
+            self._sleep_interruptible(0.8)
+        return False
+
+    def _main_wait_arrival(self, timeout):
+        """Sau khi bấm thuyền ở Làng phụ: chờ tới khi thấy nút Chiến đấu của Làng chính (và hết thấy nút Tấn công làng phụ)."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._stop_requested():
+                return False
+            scr = self._capture(fresh=True)
+            if scr is not None:
+                if _find_any(scr, TPL_BATTLE, threshold=0.75) and not self._in_builder_village(scr):
+                    return True
+                if self._guard_connection_throttled(3.0, scr):
+                    return False
+            self._sleep_interruptible(0.8)
+        return False
+
+    def _travel_by_boat(self, tpl, arrived_fn, src, dst, hint, arrive_text, arrived_status):
+        """
+        Đổi làng bằng thuyền (dùng cho cả 2 chiều): zoom out -> quét thuyền `tpl` (lướt bản đồ trái/phải/lên/xuống nếu chưa thấy)
+        -> bấm thuyền -> chờ `arrived_fn(timeout)` báo đã tới nơi. Thất bại thì nghỉ BOAT_RETRY_GAP giây rồi vòng chính tự gọi lại.
+        :return: True nếu đã sang làng đích.
+        """
+        if time.time() < getattr(self, "_boat_next_try", 0.0):
+            return False
+        if not _template_names_exist(tpl):
+            self.set_status(f"⚠️ Thiếu ảnh thuyền để sang {dst}", "warn")
+            self._builder_warn("no_boat_" + tpl, f"⚠️ Đang ở {src} nhưng chưa có ảnh thuyền trong assets/ ({hint}) "
+                                                 f"-> hãy cắt vài ảnh thuyền, hoặc tự đi thuyền")
+            return False
+        retry_gap = self._builder_cfg_float("BOAT_RETRY_GAP", BOAT_RETRY_GAP)
+        self.set_status(f"⛵ Đang tìm thuyền sang {dst}...", "search")
+        self.log(f"🛠️ Đang ở {src} -> tìm thuyền để sang {dst}")
+        try:
+            try:
+                zoom = bool(load_json_config().get("BOAT_ZOOM_OUT", BOAT_ZOOM_OUT))
+            except Exception:
+                zoom = BOAT_ZOOM_OUT
+            if zoom:
+                self._zoom_out_village()      # thu nhỏ về mức xa nhất: thuyền hiện ra đúng cỡ ảnh mẫu, ít phải lướt
+            scr = self._capture(fresh=True)
+            pos = self._find_boat_with_pan(scr, tpl)
+            if pos is None:
+                if not self._stop_requested():
+                    self.log(f"🛠️ Lướt hết bản đồ vẫn chưa thấy thuyền -> thử lại sau {retry_gap:g}s "
+                             f"(nên cắt thêm ảnh thuyền ở nhiều góc / khung hoạt ảnh khác nhau)")
+                self._boat_next_try = time.time() + retry_gap
+                return False
+            # Camera có thể còn trôi nhẹ: chụp lại và lấy vị trí thuyền MỚI NHẤT rồi mới bấm
+            scr = self._capture(fresh=True)
+            pos = self._find_boat(scr, tpl) or pos
+            self.log(f"⛵ Thấy thuyền tại {tuple(pos)} -> bấm để sang {dst}")
+            self._tap(pos, "Thuyền")
+            if arrived_fn(self._builder_cfg_float("BOAT_TRAVEL_TIMEOUT", BOAT_TRAVEL_TIMEOUT)):
+                self.log(f"🛠️ Đã sang {dst}")
+                self.set_status(arrived_status, "home")
+                self._boat_next_try = 0.0
+                self._watchdog_reset()
+                return True
+            self.log(f"⚠️ Bấm thuyền xong nhưng chưa thấy {arrive_text} -> thử lại sau {retry_gap:g}s")
+            self._close_menu(times=1)         # lỡ bấm trúng công trình khác thì đóng popup
+            self._boat_next_try = time.time() + retry_gap
+            return False
+        except Exception as e:
+            self.log(f"[❌ LỖI] _travel_by_boat ({src} -> {dst}): {e}")
+            self._boat_next_try = time.time() + retry_gap
+            return False
+
+    def _go_to_builder_base(self, screen):
+        """Đang chọn farm Làng phụ mà game ở Làng chính: đi thuyền sang Làng thợ xây (chờ thấy nút Tấn công làng phụ)."""
+        return self._travel_by_boat(TPL_BOAT, self._builder_wait_arrival, "Làng chính", "Làng thợ xây",
+                                    "boat_to_builder.png - crop_tool mục 27", "nút Tấn công làng phụ",
+                                    "🛠️ Đang ở Làng thợ xây")
+
+    def _go_to_main_village(self, screen):
+        """Đang chọn farm Làng chính mà game ở Làng phụ: đi thuyền về Làng chính (chờ thấy nút Chiến đấu, hết thấy nút Tấn công làng phụ)."""
+        return self._travel_by_boat(TPL_BOAT_MAIN, self._main_wait_arrival, "Làng thợ xây", "Làng chính",
+                                    "boat_to_main.png - crop_tool mục 28", "nút Chiến đấu của Làng chính",
+                                    "🏠 Đang ở Làng chính")
 
     # ------------------------------------------------------------------
     # 4c. ĐẦU HÀNG (Surrender Fallback) - chống treo khi vào trận mà không đánh được
@@ -3304,6 +4154,8 @@ class BotLogic:
         if cfg is None:
             cfg = load_json_config()
         spell_on = bool(cfg.get("SPELL_ENABLED", True))
+        if self._farm_village() == FARM_BUILDER:
+            spell_on = False   # Làng phụ (Thợ xây) không có phép: UI đã ẩn công tắc Thả phép -> không bao giờ thả phép
 
         def finish(source, plan):
             if not spell_on:   # công tắc "Thả phép" trên UI tắt -> bỏ mọi ô phép
@@ -3358,6 +4210,10 @@ class BotLogic:
         completed = False
         self._has_boosted = False   # trận mới -> được phép bấm Tăng tốc 1 lần
         self._battle_started_at = time.time()   # bật chế độ "đang đánh": tạm tắt Stuck Watchdog
+        self._round_st = {"done": 1, "gone": False, "streak": 0, "since": None, "absent": 0,
+                          "topup": bool(getattr(self, "_deployed_on_banner", False))}   # Làng phụ: lượt 1 đang đánh (xem _round_banner_phase)
+        self._deployed_on_banner = False
+        self._banner_countdown = False
         try:
             cfg = load_json_config()
             drop_zone = self._troop_drop_zone(cfg)
@@ -3586,6 +4442,408 @@ class BotLogic:
             self._safe_click(px, py)
             time.sleep(SPELL_DROP_INTERVAL)
 
+    # ---------------------------------------------------------------- Làng phụ: LƯỢT 2
+    def _next_round_enabled(self):
+        """True nếu đang farm Làng phụ, BUILDER_NEXT_ROUND bật và đã có ảnh chữ đếm ngược (crop_tool mục 29)."""
+        if self._farm_village() != FARM_BUILDER:
+            return False
+        try:
+            if not bool(load_json_config().get("BUILDER_NEXT_ROUND", BUILDER_NEXT_ROUND)):
+                return False
+        except Exception:
+            pass
+        if not _template_names_exist(TPL_BUILDER_ROUND_START):
+            self._builder_warn("no_round_tpl", "ℹ️ Làng phụ: chưa có ảnh builder_round_start.png (crop_tool mục 29, cắt chữ "
+                                               "'Trận chiến bắt đầu trong vòng') -> bot KHÔNG tự thả quân cho lượt 2")
+            return False
+        return True
+
+    @staticmethod
+    def _round_banner_kernel(path):
+        """
+        Kernel tương phản (nét chữ SÁNG - viền TỐI) dựng từ 1 ảnh mẫu chữ đếm ngược, nhớ theo thời gian sửa file.
+        Điểm ảnh ở NỀN không nằm trong kernel nên đổi phong cảnh không làm đổi điểm. (kernel, tương phản mẫu) hoặc None.
+        """
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return None
+        hit = _ROUND_KERNELS.get(path)
+        if hit and hit[0] == mtime:
+            return hit[1], hit[2]
+        tpl = ImageProcessor.load_template(path)
+        if tpl is None:
+            return None
+        text = (tpl.min(axis=2) >= BUILDER_ROUND_TEXT_MIN).astype(np.uint8)
+        near = cv2.dilate(text, np.ones((3, 3), np.uint8))
+        ring = (near - text).astype(np.float32)
+        text = text.astype(np.float32)
+        if text.sum() < 20 or ring.sum() < 20:
+            return None                                   # ảnh mẫu không có nét chữ sáng rõ ràng
+        gray = cv2.cvtColor(tpl, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        contrast = float((gray * text).sum() / text.sum() - (gray * ring).sum() / ring.sum())
+        if contrast < 20:
+            return None
+        kernel = (text / text.sum() - ring / ring.sum()).astype(np.float32)
+        _ROUND_KERNELS[path] = (mtime, kernel, contrast)
+        return kernel, contrast
+
+    def _round_banner_score(self, screen):
+        """Điểm tương phản cao nhất (1.0 = đúng như ảnh mẫu) của chữ 'Trận chiến bắt đầu trong vòng' trong vùng BUILDER_ROUND_ROI; None nếu không đo được."""
+        try:
+            paths = ImageProcessor.expand_template_paths(_asset_specs(TPL_BUILDER_ROUND_START))
+            x1, y1, x2, y2 = self._scale_roi(self._roi_cfg("BUILDER_ROUND_ROI", BUILDER_ROUND_ROI_DEFAULT), screen)
+            gray = cv2.cvtColor(screen[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY).astype(np.float32)
+            best = None
+            for path in paths:
+                kc = self._round_banner_kernel(path)
+                if kc is None or kc[0].shape[0] > gray.shape[0] or kc[0].shape[1] > gray.shape[1]:
+                    continue
+                res = cv2.matchTemplate(gray, kc[0], cv2.TM_CCORR)
+                score = float(np.nan_to_num(res, nan=-1.0).max()) / kc[1]
+                best = score if best is None else max(best, score)
+            return best
+        except Exception as e:
+            self.debug(f"[⚠️ CẢNH BÁO] _round_banner_score: {e}")
+            return None
+
+    def _round_banner_shape_score(self, screen):
+        """ĐỘ PHỦ nét chữ (0..1): tỉ lệ điểm ảnh NÉT CHỮ của ảnh mẫu đang SÁNG tại vị trí khớp nhất trong BUILDER_ROUND_ROI.
+        Phân biệt 'Trận chiến bắt đầu trong vòng' (~0.81) với chữ trắng viền đen KHÁC cùng chỗ như 'Trận chiến kết thúc sau: NNgi' (~0.53).
+        None nếu không đo được."""
+        try:
+            paths = ImageProcessor.expand_template_paths(_asset_specs(TPL_BUILDER_ROUND_START))
+            x1, y1, x2, y2 = self._scale_roi(self._roi_cfg("BUILDER_ROUND_ROI", BUILDER_ROUND_ROI_DEFAULT), screen)
+            roi = screen[y1:y2, x1:x2]
+            binm = (roi.min(axis=2) >= BUILDER_ROUND_TEXT_MIN).astype(np.float32)
+            best = None
+            for path in paths:
+                tpl = ImageProcessor.load_template(path)
+                if tpl is None:
+                    continue
+                tm = (tpl.min(axis=2) >= BUILDER_ROUND_TEXT_MIN).astype(np.float32)
+                if tm.sum() < 20 or tm.shape[0] > binm.shape[0] or tm.shape[1] > binm.shape[1]:
+                    continue
+                res = np.nan_to_num(cv2.matchTemplate(binm, tm, cv2.TM_CCORR), nan=0.0) / float(tm.sum())
+                sc = float(res.max())
+                best = sc if best is None else max(best, sc)
+            return best
+        except Exception as e:
+            self.debug(f"[⚠️ CẢNH BÁO] _round_banner_shape_score: {e}")
+            return None
+
+    def _round_banner_shape_ok(self, screen):
+        try:
+            th = float(load_json_config().get("BUILDER_ROUND_SHAPE_THRESHOLD", BUILDER_ROUND_SHAPE_THRESHOLD))
+        except Exception:
+            th = BUILDER_ROUND_SHAPE_THRESHOLD
+        sc = self._round_banner_shape_score(screen)
+        return True if sc is None else sc >= th
+
+    def _see_round_banner(self, screen):
+        """
+        True nếu thấy chữ 'Trận chiến bắt đầu trong vòng' (màn đếm ngược trước khi một lượt bắt đầu).
+        Mặc định (BUILDER_ROUND_MATCH_MODE = "contrast") đo độ tương phản chữ sáng / viền tối nên KHÔNG bị nhiễu bởi phong cảnh;
+        "template" hoặc ảnh mẫu không dùng được -> so khớp ảnh xám như cũ.
+        """
+        try:
+            if screen is None:
+                return False
+            try:
+                cfg = load_json_config()
+            except Exception:
+                cfg = {}
+            if str(cfg.get("BUILDER_ROUND_MATCH_MODE", BUILDER_ROUND_MATCH_MODE)).strip().lower() != "template":
+                score = self._round_banner_score(screen)
+                if score is not None:
+                    try:
+                        th = float(cfg.get("BUILDER_ROUND_MATCH_THRESHOLD", BUILDER_ROUND_MATCH_THRESHOLD))
+                    except (TypeError, ValueError):
+                        th = BUILDER_ROUND_MATCH_THRESHOLD
+                    return score >= th and self._round_banner_shape_ok(screen)
+            try:
+                th = float(cfg.get("BUILDER_ROUND_THRESHOLD", BUILDER_ROUND_THRESHOLD))
+            except (TypeError, ValueError):
+                th = BUILDER_ROUND_THRESHOLD
+            return bool(ImageProcessor.find_template_any(
+                screen, _asset_specs(TPL_BUILDER_ROUND_START), th, min_votes=1,
+                roi=self._roi_cfg("BUILDER_ROUND_ROI", BUILDER_ROUND_ROI_DEFAULT), fast=True))
+        except Exception as e:
+            self.debug(f"[⚠️ CẢNH BÁO] _see_round_banner: {e}")
+            return False
+
+    @staticmethod
+    def _slot_is_empty(screen, x, y, half=26):
+        """True nếu ô quân tại (x, y) (960x540) đã HẾT quân (thẻ xám '0x': bão hòa ~0) hoặc là ô trống nét đứt (rất tối)."""
+        try:
+            h, w = screen.shape[:2]
+            sx, sy = w / 960.0, h / 540.0
+            roi = screen[max(0, int((y - half) * sy)):int((y + half) * sy), max(0, int((x - half) * sx)):int((x + half) * sx)]
+            if roi.size == 0:
+                return False
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+            return bool(float(hsv[..., 1].mean()) < BUILDER_SLOT_MAX_SAT or float(hsv[..., 2].mean()) < BUILDER_SLOT_MIN_VALUE)
+        except Exception:
+            return False
+
+    def _wait_round_start(self):
+        """Chờ hết đếm ngược (banner biến mất BUILDER_ROUND_CONFIRM_FRAMES khung liên tiếp). Hết giờ vẫn trả về để thả."""
+        deadline = time.time() + BUILDER_ROUND_START_TIMEOUT
+        gone = 0
+        while time.time() < deadline:
+            if self._stop_requested():
+                return False
+            scr = self._capture(fresh=True)
+            if scr is not None:
+                if self._guard_connection_throttled(3.0, scr):
+                    self.log("🔌 Mất kết nối khi chờ lượt 2 bắt đầu -> đã phục hồi")
+                    return False
+                gone = 0 if self._see_round_banner(scr) else gone + 1
+                if gone >= BUILDER_ROUND_CONFIRM_FRAMES:
+                    return True
+            self._sleep_interruptible(0.4)
+        self.log(f"[⚠️ CẢNH BÁO] Chờ {BUILDER_ROUND_START_TIMEOUT:g}s mà banner đếm ngược vẫn còn -> vẫn thả quân")
+        return True
+
+    @staticmethod
+    def _round2_cards(cfg):
+        """ROUND2_CARDS (UI: đặt 1 lần, Lưu 1 lần) -> [(số thẻ, (x, y))] sắp theo số thẻ; chưa đặt / sai định dạng -> []."""
+        out = []
+        main = cfg.get("DEPLOY_CARDS_CONFIG") or []
+        try:
+            for c in (cfg.get("ROUND2_CARDS") or []):
+                slot = int(c["slot"])
+                if slot < 1:
+                    continue
+                if c.get("pos"):
+                    x, y = int(c["pos"][0]), int(c["pos"][1])
+                else:   # không nhập tọa độ riêng -> dùng vị trí thẻ CÙNG SỐ đã setup ở danh sách thẻ lượt 1 (khỏi nhập lại)
+                    x, y = int(main[slot - 1]["pos"][0]), int(main[slot - 1]["pos"][1])
+                out.append((slot, (x, y)))
+        except Exception:
+            return []
+        return sorted(out)
+
+    @staticmethod
+    def _round2_overrides(cfg):
+        """{số thẻ: {"type": ..., "count": ...}} - loại thẻ / số lần bấm riêng cho lượt 2 (nếu có đặt trên UI)."""
+        out = {}
+        try:
+            for c in (cfg.get("ROUND2_CARDS") or []):
+                ov = {}
+                if c.get("type") in ("troop", "hero"):
+                    ov["type"] = c["type"]
+                if c.get("clicks_count"):
+                    ov["count"] = int(c["clicks_count"])
+                if c.get("drop"):
+                    ov["drop"] = [list(p[:2]) for p in c["drop"]]
+                if ov:
+                    out[int(c["slot"])] = ov
+        except Exception:
+            return {}
+        return out
+
+    def _round2_plan(self, plan, cards):
+        """
+        Plan lượt 2 = CHỈ các thẻ đã lưu trên UI (mặc định Thẻ 1 + Thẻ 8-9), đúng tọa độ ô thẻ đã lưu.
+        Loại thẻ / số lần bấm / điểm thả / kỹ năng lấy theo thẻ CÙNG SỐ của lượt 1; không có thì Thẻ 1 = Tướng, còn lại = Lính.
+        """
+        try:
+            overrides = self._round2_overrides(load_json_config())
+        except Exception:
+            overrides = {}
+        by_no = {}
+        for idx, sl in enumerate(plan, 1):
+            m = re.match(r"Thẻ\s+(\d+)", str(sl.get("name") or ""))
+            by_no[int(m.group(1)) if m else idx] = sl
+        out = []
+        for slot, (x, y) in cards:
+            base = by_no.get(slot)
+            new = dict(base) if base else {"type": "hero" if slot == 1 else "troop", "count": None, "zones": {}}
+            new.update({"x": x, "y": y, "name": f"Thẻ {slot} (lượt 2)"})
+            ov = overrides.get(slot) or {}
+            if ov.get("type"):
+                new["type"] = ov["type"]
+                new["deploy_mode"] = DEFAULT_MODE_BY_TYPE[new["type"]]
+            if ov.get("count"):
+                new["count"] = ov["count"]
+            if ov.get("drop"):   # điểm thả riêng của thẻ lượt 2 (vd thẻ tiếp viện 8-9) -> áp cho kiểu thả nhiều điểm đang dùng
+                cur_mode = getattr(self, "_cur_deploy_mode", None)
+                if cur_mode:
+                    zones = dict(new.get("zones") or {})
+                    zones[cur_mode] = ov["drop"]
+                    new["zones"] = zones
+            new.setdefault("deploy_mode", DEFAULT_MODE_BY_TYPE[new["type"]])
+            out.append(new)
+        return out
+
+    def _deploy_next_round(self, round_no, topup=False):
+        """
+        Thả quân cho lượt `round_no` (>= 2): chờ hết đếm ngược -> thả lại. Có ROUND2_CARDS (đã Lưu trên UI) thì CHỈ thả các thẻ đó;
+        chưa có thì thả theo cấu hình lượt 1 và bỏ qua ô đã hết quân.
+        topup=True: THẢ BÙ cho lượt đang đánh (banner vừa hết) - chỉ thả các ô của kế hoạch vẫn còn quân, bỏ qua ô đã hết.
+        """
+        cfg = load_json_config()
+        if topup:
+            self.log(f"🔁 Banner đã hết -> kiểm tra thả bù lượt {round_no} (ô nào còn quân thì thả lại)")
+            self.set_status(f"⚔️ Làng phụ: thả bù lượt {round_no}...", "attack")
+            self._sleep_interruptible(BUILDER_TOPUP_SETTLE)
+        else:
+            self.log(f"⚔️ Làng phụ: bắt đầu LƯỢT {round_no} -> thả quân tiếp")
+            self.set_status(f"⚔️ Làng phụ: đang thả quân lượt {round_no}...", "attack")
+        if topup:
+            pass
+        elif bool(cfg.get("BUILDER_DEPLOY_ON_BANNER", BUILDER_DEPLOY_ON_BANNER)):
+            self.log(f"⚡ Lượt {round_no}: thấy banner đếm ngược -> THẢ LUÔN, không chờ hết đếm ngược")
+        elif bool(cfg.get("BUILDER_ROUND_WAIT_START", BUILDER_ROUND_WAIT_START)):
+            if not self._wait_round_start():
+                return False
+            self._sleep_interruptible(BUILDER_ROUND_SETTLE)
+        drop_zone = self._troop_drop_zone(cfg)
+        spell_cfg = self._spell_config(cfg)
+        self._cur_deploy_mode = normalize_deploy_mode(cfg.get("DEPLOY_MODE"))
+        self._single_point = self._single_point_for(cfg, self._cur_deploy_mode)
+        self._pending_skills = []
+        source, plan = self._build_deploy_plan(cfg)
+        r2 = [] if topup else self._round2_cards(cfg)
+        if r2:
+            plan = self._round2_plan(plan, r2)
+        if not plan:
+            self.log("⚠️ Lượt 2: không có ô nào để thả")
+            return False
+        screen = self._capture(fresh=True)
+        skip = [False] * len(plan)
+        if topup:
+            if screen is None:
+                return False
+            skip = [self._slot_is_empty(screen, sl["x"], sl["y"]) for sl in plan]
+            if all(skip):
+                self.log("✅ Thả bù: các ô đều đã hết quân (lính đã xuống đủ) -> không cần thả thêm")
+                return False
+            self.log(f"🔁 Thả bù: còn quân ở {skip.count(False)}/{len(plan)} ô -> thả lại các ô này")
+        elif r2:
+            self.log(f"⚔️ Lượt {round_no}: thả theo thẻ đã lưu trên UI (Thẻ {', '.join(str(n) for n, _ in r2)})")
+        else:
+            if bool(cfg.get("BUILDER_ROUND_SKIP_EMPTY", BUILDER_ROUND_SKIP_EMPTY)) and screen is not None:
+                skip = [self._slot_is_empty(screen, sl["x"], sl["y"]) for sl in plan]
+                if all(skip):
+                    skip = [False] * len(plan)      # nhận diện bất thường (tất cả đều 'hết') -> thả hết cho chắc
+            self.log(f"⚔️ Lượt {round_no}: thả {skip.count(False)}/{len(plan)} ô (bỏ qua {skip.count(True)} ô hết quân / ô trống)")
+        self._last_guard_at = time.time()
+        self._spell_cursor = 0
+        for idx, slot in enumerate(plan, 1):
+            if self._stop_requested():
+                return False
+            if skip[idx - 1]:
+                continue
+            name = slot.get("name") or f"Ô {idx} ({slot['type']})"
+            try:
+                self._deploy_slot(name, slot, drop_zone, spell_cfg)
+            except Exception as e:
+                self.log(f"[⚠️ CẢNH BÁO] Lỗi khi thả {name} (lượt {round_no}): {e} -> chuyển sang ô kế tiếp")
+            time.sleep(DEPLOY_SLOT_DELAY)
+        self._run_due_skills()
+        self.log(f"✅ Đã thả xong lượt {round_no}! Đang chờ kết thúc trận...")
+        return True
+
+    def _builder_max_rounds(self):
+        try:
+            return max(1, min(5, int(load_json_config().get("BUILDER_MAX_ROUNDS", BUILDER_MAX_ROUNDS))))
+        except Exception:
+            return BUILDER_MAX_ROUNDS
+
+    def _round_expected(self):
+        """True nếu làng phụ còn lượt chưa đánh (đã bật lượt 2 + chưa đủ BUILDER_MAX_ROUNDS) -> hết lượt 1 chưa phải hết trận."""
+        try:
+            if not self._next_round_enabled():
+                return False
+            st = getattr(self, "_round_st", None) or {"done": 1}
+            return st["done"] < self._builder_max_rounds()
+        except Exception:
+            return False
+
+    def _round_banner_phase(self, screen):
+        """
+        Phân loại banner đếm ngược trên khung `screen` (1 khung -> 1 kết luận, KHÔNG có trạng thái lấp lửng):
+          None        : không có banner (hoặc tính năng tắt / đã đủ lượt / banner kẹt quá lâu -> bỏ qua)
+          "countdown" : đang có banner nhưng CHƯA phải lượt mới đã xác nhận (banner cũ của lượt trước, hoặc mới thấy < CONFIRM khung)
+                        -> luồng gọi KHÔNG được bấm Tăng tốc / Về nhà ở khung này
+          "new"       : banner MỚI đã thấy đủ BUILDER_ROUND_CONFIRM_FRAMES khung sau khi lượt trước đã biến mất -> thả lượt mới
+        """
+        if not self._next_round_enabled():
+            return None
+        st = getattr(self, "_round_st", None)
+        if st is None:
+            st = self._round_st = {"done": 1, "gone": False, "streak": 0, "since": None, "absent": 0, "topup": False}
+        seen = self._see_round_banner(screen)
+        if not seen:
+            st["gone"], st["streak"], st["since"] = True, 0, None
+            st["absent"] = st.get("absent", 0) + 1
+            # Đã thả lúc banner còn hiện (game còn đếm ngược) -> banner vừa hết: kiểm tra thả bù đúng 1 lần
+            if st.get("topup") and st["absent"] >= BUILDER_TOPUP_ABSENT_FRAMES:
+                st["topup"] = False
+                try:
+                    if bool(load_json_config().get("BUILDER_TOPUP", BUILDER_TOPUP_ENABLED)):
+                        return "topup"
+                except Exception:
+                    return "topup"
+            return None
+        st["absent"] = 0
+        if st["done"] >= self._builder_max_rounds():
+            return None
+        now = time.time()
+        if st.get("since") is None:
+            st["since"] = now
+        elif now - st["since"] > BUILDER_ROUND_START_TIMEOUT:
+            return None                         # banner đứng yên quá lâu = nhận nhầm -> đừng chặn Tăng tốc / Về nhà mãi
+        if not st["gone"]:
+            return "countdown"                  # vẫn là banner của lượt trước
+        st["streak"] += 1
+        return "new" if st["streak"] >= BUILDER_ROUND_CONFIRM_FRAMES else "countdown"
+
+    def _maybe_next_round(self, screen):
+        """
+        Gọi mỗi vòng giám sát trận / rời trận (chỉ có tác dụng khi farm Làng phụ + đã có ảnh chữ đếm ngược).
+        Dùng _round_banner_phase(): "new" -> _deploy_next_round(); "countdown" -> đặt self._banner_countdown = True để
+        luồng gọi bỏ qua nút Tăng tốc / Về nhà ở khung này. Tối đa BUILDER_MAX_ROUNDS lượt mỗi trận.
+        :return: True nếu vừa thả quân cho lượt mới (luồng gọi nên giám sát lại từ đầu).
+        """
+        self._banner_countdown = False
+        try:
+            phase = self._round_banner_phase(screen)
+            if phase == "countdown":
+                self._banner_countdown = True
+                return False
+            if phase == "topup":
+                self._deploy_next_round(self._round_st["done"], topup=True)
+                self._battle_started_at = time.time()
+                return True
+            if phase != "new":
+                return False
+            st = self._round_st
+            st["done"] += 1
+            st["gone"], st["streak"], st["since"] = False, 0, None
+            st["absent"] = 0
+            try:
+                st["topup"] = bool(load_json_config().get("BUILDER_DEPLOY_ON_BANNER", BUILDER_DEPLOY_ON_BANNER))
+            except Exception:
+                st["topup"] = BUILDER_DEPLOY_ON_BANNER
+            self.log(f"🔀 Rẽ nhánh: thấy banner lượt mới -> thả quân lượt {st['done']}")
+            self._deploy_next_round(st["done"])
+            self._battle_started_at = time.time()   # làm mới thời gian ân hạn của Watchdog cho lượt mới
+            self._has_boosted = False
+            return True
+        except Exception as e:
+            self.debug(f"[⚠️ CẢNH BÁO] _maybe_next_round: {e}")
+            return False
+
+    def _leave_next_round(self, screen):
+        """Dùng trong _leave_battle: thấy lượt mới thì thả quân rồi giám sát trận lượt đó (_wait_battle_end). True nếu đã xử lý."""
+        if self._maybe_next_round(screen):
+            self._wait_battle_end()
+            return True
+        return False
+
     def _boost_available(self):
         """True nếu có ảnh mẫu assets/button_boost.png."""
         return _template_names_exist(TPL_BOOST)
@@ -3690,13 +4948,21 @@ class BotLogic:
         try:
             h, w = screen.shape[:2]
             sx, sy = w / 960.0, h / 540.0
-            x1, y1, x2, y2 = BATTLE_END_BTN_ROI
+            roi_box, ratio = BATTLE_END_BTN_ROI, BATTLE_END_BTN_RED_RATIO
+            if self._farm_village() == FARM_BUILDER:
+                try:
+                    cfg = load_json_config()
+                    roi_box = tuple(cfg.get("BUILDER_BATTLE_END_BTN_ROI", BUILDER_BATTLE_END_BTN_ROI))
+                    ratio = float(cfg.get("BUILDER_BATTLE_END_BTN_RED_RATIO", BUILDER_BATTLE_END_BTN_RED_RATIO))
+                except Exception:
+                    roi_box, ratio = BUILDER_BATTLE_END_BTN_ROI, BUILDER_BATTLE_END_BTN_RED_RATIO
+            x1, y1, x2, y2 = roi_box
             roi = screen[int(y1 * sy):int(y2 * sy), int(x1 * sx):int(x2 * sx)]
             if roi.size == 0:
                 return False
             hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
             red = ((hsv[..., 0] <= 8) | (hsv[..., 0] >= 172)) & (hsv[..., 1] >= 130) & (hsv[..., 2] >= 130)
-            return float(red.mean()) >= BATTLE_END_BTN_RED_RATIO
+            return float(red.mean()) >= ratio
         except Exception:
             return False
 
@@ -3744,8 +5010,13 @@ class BotLogic:
         self.set_status("⏳ Đang chờ kết thúc trận...", "wait")
         started = time.time()
         streak, last_pos, last_src = 0, None, None
-        last_diag = 0.0
+        last_diag = time.time()      # lần chẩn đoán đầu tiên sau DIAG_INTERVAL (không log ngay khung đầu)
         boost_seen = None            # (thời điểm thấy, vị trí) nút Tăng tốc đang chờ đủ BOOST_CLICK_DELAY
+        home_first_seen = None       # lúc đầu tiên thấy 'Về nhà' khi còn lượt chưa đánh (chờ banner lượt 2 một lúc)
+        try:
+            grace = float(load_json_config().get("BUILDER_ROUND_END_GRACE", BUILDER_ROUND_END_GRACE))
+        except Exception:
+            grace = BUILDER_ROUND_END_GRACE
         while time.time() - started < BATTLE_MONITOR_TIMEOUT:
             if self._stop_requested():
                 self.log("⏹️ Nhận lệnh dừng -> thoát trận sớm")
@@ -3756,6 +5027,18 @@ class BotLogic:
                 if time.time() - last_diag >= DIAG_INTERVAL:
                     last_diag = time.time()
                     self._log_battle_diag(screen)
+                if self._maybe_next_round(screen):      # Làng phụ: lượt 2 vừa bắt đầu -> đã thả quân lại, giám sát tiếp từ đầu
+                    started = time.time()
+                    streak, last_pos, last_src = 0, None, None
+                    boost_seen = None
+                    home_first_seen = None
+                    continue
+                if self._banner_countdown:              # đang đếm ngược (banner 2 chưa đủ khung / banner cũ): không Tăng tốc, không Về nhà
+                    streak, last_pos, last_src = 0, None, None
+                    boost_seen = None
+                    home_first_seen = None
+                    self._sleep_interruptible(0.4)
+                    continue
                 try:
                     boost_pos, home_pos, home_src = self._scan_battle_buttons(screen)
                 except Exception as e:
@@ -3765,6 +5048,11 @@ class BotLogic:
                     home_pos = None        # còn nút đỏ Kết thúc/Đầu hàng = trận đang đánh, KHÔNG phải nút Về nhà
                 if home_pos and home_src == "hsv" and boost_pos is not None:
                     home_pos = None        # còn nút Tăng tốc = đang đánh, khối xanh không phải nút Về nhà
+                if (home_pos and boost_pos is not None
+                        and abs(home_pos[0] - boost_pos[0]) <= HOME_BOOST_EXCLUDE_TOL
+                        and abs(home_pos[1] - boost_pos[1]) <= HOME_BOOST_EXCLUDE_TOL):
+                    self.debug(f"ℹ️ 'Về nhà' dò được {tuple(home_pos)} trùng nút Tăng tốc {tuple(boost_pos)} -> khớp nhầm, bỏ qua")
+                    home_pos = None
                 if self._see_battle_summary(screen):   # bảng tổng kết thiệt hại % hiện ra = chắc chắn hết trận
                     self.log("🏁 Trận đấu đã kết thúc (thấy bảng tổng kết thiệt hại %) -> rời trận")
                     return True
@@ -3776,6 +5064,16 @@ class BotLogic:
                     streak = streak + 1 if same else 1
                     last_pos, last_src = home_pos, home_src
                     need = RETURN_HOME_CONFIRM_HSV if home_src == "hsv" else RETURN_HOME_CONFIRM_TEMPLATE
+                    if self._farm_village() == FARM_BUILDER:
+                        need = max(need, 2)     # Làng phụ: ảnh mẫu phải thấy >= 2 khung liên tiếp
+                    if streak >= need and grace > 0 and self._round_expected():
+                        # Còn lượt chưa đánh: 'Về nhà' có thể chỉ là màn chuyển lượt -> chờ banner lượt 2 tối đa `grace` giây
+                        if home_first_seen is None:
+                            home_first_seen = time.time()
+                            self.log(f"⏳ Thấy 'Về nhà' nhưng mới xong lượt {self._round_st['done']} -> chờ tối đa {grace:g}s xem banner lượt sau")
+                        if time.time() - home_first_seen < grace:
+                            self._sleep_interruptible(BATTLE_CONFIRM_POLL)
+                            continue
                     if streak >= need:
                         how = "nút xanh lá (HSV)" if home_src == "hsv" else "ảnh mẫu button_return_home"
                         self.log(f"🏁 Trận đấu đã kết thúc (thấy nút 'Về nhà' bằng {how}) -> không Tăng tốc nữa, rời trận")
@@ -3783,6 +5081,7 @@ class BotLogic:
                     # Đã thấy 'Về nhà' (đang xác nhận): TUYỆT ĐỐI không bấm Tăng tốc ở vòng này
                 else:
                     streak, last_pos, last_src = 0, None, None
+                    home_first_seen = None
                     if boost_pos is not None and not self._has_boosted:
                         # Quét SONG SONG: đếm 2s mà vẫn tiếp tục quét nút 'Về nhà' ở mỗi vòng (không chặn).
                         # Nút phải còn thấy liên tục ở cùng chỗ trong suốt 2s mới bấm; 'Về nhà' hiện ra thì thôi, không Tăng tốc nữa.
@@ -3826,6 +5125,11 @@ class BotLogic:
             else:
                 parts.append("Về nhà: THIẾU ảnh mẫu")
             parts.append(f"nút xanh HSV: {self._find_green_button(screen)}")
+            if self._farm_village() == FARM_BUILDER and _template_names_exist(TPL_BUILDER_ROUND_START):
+                sc = self._round_banner_score(screen)
+                parts.append("Banner lượt 2 (ngưỡng %.2f): %s" % (BUILDER_ROUND_MATCH_THRESHOLD, "?" if sc is None else f"{sc:.2f}"))
+                shp = self._round_banner_shape_score(screen)
+                parts.append("độ phủ chữ (ngưỡng %.2f): %s" % (BUILDER_ROUND_SHAPE_THRESHOLD, "?" if shp is None else f"{shp:.2f}"))
             self.log("📊 " + " | ".join(parts))
         except Exception as e:
             self.debug(f"[⚠️ CẢNH BÁO] _log_battle_diag: {e}")
@@ -3877,10 +5181,17 @@ class BotLogic:
             return False
 
     def _see_home_village(self, screen):
-        """True nếu đã ở làng nhà: thấy nút Búa (button_build*) hoặc nút Chiến đấu (button_battle*)."""
+        """True nếu đã ở làng nhà: thấy nút Búa (button_build*) hoặc nút Chiến đấu (button_battle*).
+        Farm Làng phụ: thấy nút Tấn công / Nhận thưởng của làng phụ cũng tính là đã về làng (để _leave_battle xong việc)."""
         try:
-            return bool(_find_any(screen, TPL_BUILD, threshold=0.75)
-                        or _find_any(screen, TPL_BATTLE, threshold=0.75))
+            if (_find_any(screen, TPL_BUILD, threshold=0.75)
+                    or _find_any(screen, TPL_BATTLE, threshold=0.75)):
+                return True
+            if self._farm_village() == FARM_BUILDER:
+                th = self._builder_threshold()
+                return bool(_find_any(screen, TPL_BUILDER_ATTACK, threshold=th)
+                            or _find_any(screen, TPL_BUILDER_CLAIM, threshold=th))
+            return False
         except Exception:
             return False
 
@@ -3933,6 +5244,12 @@ class BotLogic:
                     continue
                 if at_home(screen):
                     return
+                if self._leave_next_round(screen):      # vừa bấm Về nhà / Tiếp tục mà game sang lượt 2 -> thả quân lại
+                    attempts, first_click_at = 0, None
+                    continue
+                if self._banner_countdown:              # đang đếm ngược lượt 2 -> không bấm nút nào
+                    self._sleep_interruptible(0.4)
+                    continue
                 pos = self._find_return_home(screen)
                 if pos is None:
                     if self._guard_connection(screen):
@@ -3978,6 +5295,11 @@ class BotLogic:
                     if self._guard_connection(screen):
                         self.log("🔌 Mất kết nối khi chờ về làng -> đã phục hồi, thoát luồng rời trận")
                         return
+                    if self._leave_next_round(screen):
+                        attempts, first_click_at = 0, None
+                        break
+                    if self._banner_countdown:
+                        continue
                     if time.time() - click_at >= HOME_RECLICK_AFTER and self._find_return_home(screen):
                         self.log("↩️ Vẫn thấy nút 'Về nhà', chưa thấy nút Búa ở làng -> quét lại và bấm lại")
                         break

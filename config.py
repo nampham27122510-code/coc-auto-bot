@@ -189,6 +189,10 @@ CONFIG_JSON_PATH = os.path.join(APP_DIR, "config.json")
 # rồi thêm hàm chuyển đổi vào _MIGRATIONS bên dưới.
 CONFIG_VERSION = 1
 
+# Thư mục (trong assets/) chứa ảnh nút xử lý LUỒNG LẠ: anomaly_btn_1.png, anomaly_btn_2.png ...
+# (tools/crop_tool.py mục 22 tự lưu + tự cập nhật ANOMALY_BUTTON_IMAGES bên dưới)
+ANOMALY_ASSET_DIR = "anomaly"
+
 JSON_CONFIG_DEFAULTS = {
     # --- Thiết lập giao diện (gui/app_ui.py tự lưu; thiếu khóa -> lấy hằng số ở đầu file này) ---
     "LDPLAYER_PATH": LDPLAYER_PATH,
@@ -232,10 +236,15 @@ JSON_CONFIG_DEFAULTS = {
     "TEMPLATE_MIN_VOTES": 2,              # nút UI có >= 2 ảnh biến thể: cần ít nhất ngần này ảnh KHỚP CÙNG VỊ TRÍ (1 = tắt bỏ phiếu)
     "TEMPLATE_VOTE_TOL": 14,              # px: các ảnh khớp cách nhau <= ngần này coi là CÙNG một vị trí
     "TEMPLATE_SOLO_SCORE": 0.95,          # chỉ 1 ảnh khớp nhưng điểm >= ngần này (gần như trùng pixel) vẫn chấp nhận
-    # Điểm thẻ Tường = WALL_WEIGHT_ID x điểm nhận dạng (ảnh + chữ Tường, phần TRÁI) + WALL_WEIGHT_PRICE x điểm giá/icon (phần PHẢI)
+    # Điểm thẻ Tường = trung bình có trọng số của 3 thành phần (tự chuẩn hóa, 0 = bỏ thành phần đó). Chỉnh trên UI.
+    "WALL_WEIGHT_IMAGE": 1.0,             # trọng số điểm ẢNH mẫu (làng + cấp + tài nguyên đã chọn)
+    "WALL_WEIGHT_TEXT": 1.0,              # trọng số điểm CHỮ "Tường" (OCR)
     "WALL_WEIGHT_PRICE": 0.6,             # trọng số phần giá + icon Vàng/Dầu (chữ đỏ thiếu tài nguyên vẫn tính là có giá)
-    "WALL_WEIGHT_ID": 0.4,                # trọng số phần ảnh + chữ "Tường" (tự chuẩn hóa nếu tổng != 1)
-    "WALL_MIN_ID_SCORE": 0.6,             # điểm SÀN của phần nhận dạng Tường (0-1): thấp hơn thì loại dù giá khớp cao
+    "WALL_MIN_ID_SCORE": 0.6,             # điểm SÀN của phần ẢNH (0-1): thấp hơn thì loại dù giá/chữ cao
+    # Bộ ảnh mẫu dùng làm "thang chấm điểm" = đúng LÀNG + đúng CẤP + đúng TÀI NGUYÊN (theo tên file wall_item_<main|sub>_<gold|elixir>_lv<N>.png)
+    "WALL_LEVEL_MAIN": 0,                 # cấp Tường LÀNG CHÍNH đang nâng; 0 = không lọc theo cấp (nhận mọi cấp)
+    "WALL_LEVEL_SUB": 0,                  # cấp Tường LÀNG PHỤ đang nâng; 0 = không lọc theo cấp
+    "WALL_RESOURCE": "AUTO",              # "AUTO" (cả Vàng + Dầu) | "GOLD" | "ELIXIR": chỉ dùng ảnh mẫu / chỉ nhận thẻ của tài nguyên này
     "WALL_MIN_VARIANT_VOTES": 2,          # số ảnh biến thể wall_item_* phải cùng khớp 1 dòng để tính là 'nhiều ảnh đồng thuận'
     # Vùng GIỮA thẻ Tường bị "đục lỗ" (mask) khi khớp ảnh mẫu card_wall.png để bỏ chữ số xN (x152, x150...)
     # [bắt đầu, kết thúc] tính theo tỉ lệ chiều rộng thẻ (0.0-1.0): 0.40 = 40%, 0.70 = 70%
@@ -260,6 +269,12 @@ JSON_CONFIG_DEFAULTS = {
     "OCR_FAST_SCALE": 2.0,
     "OCR_FAST_THRESH": 175,
     "OCR_USE_TESSEROCR": True,
+    # --- Xử lý LUỒNG LẠ / popup không xác định (sự kiện, bảo trì, nút X / Hủy / Xác nhận...) ---
+    # Thứ tự: (1) quét danh sách ảnh nút này -> (2) bấm FALLBACK_SAFE_CLICK_POS -> (3-4) mở lại game.
+    "ANOMALY_BUTTON_IMAGES": [],          # danh sách ảnh nút (đường dẫn tương đối assets/ hoặc tuyệt đối); thêm / bớt N ảnh tùy ý
+    "ANOMALY_MATCH_THRESHOLD": 0.85,      # ngưỡng khớp OpenCV RIÊNG cho ảnh nút luồng lạ (0.50-0.99)
+    "ANOMALY_SCAN_RETRIES": 2,            # số lần quét lại toàn bộ danh sách ảnh trước khi chuyển sang bấm tọa độ an toàn
+    "ANOMALY_SETTLE_SECONDS": 1.5,        # nghỉ sau mỗi cú bấm để màn hình ổn định rồi mới kiểm tra đã về Làng chính chưa
     "DEPLOY_CARDS_CONFIG": [
         {"slot": 1, "pos": [220, 480], "type": "troop", "clicks_count": 30},
         {"slot": 2, "pos": [290, 480], "type": "troop", "clicks_count": 10},
@@ -271,6 +286,16 @@ JSON_CONFIG_DEFAULTS = {
         "DROP_MODE": "evenly",            # "evenly" (xoay vòng) | "random"
         "TARGET_POSITIONS": [[405, 170], [610, 195], [405, 290], [610, 305]],
     },
+    # --- KIỂU THẢ / COMBO THẢ do người dùng đặt tên (UI: tab Tọa độ & Thẻ quân) ---
+    # Vị trí + loại thẻ quân đặt 1 lần (DEPLOY_CARDS_CONFIG); mỗi kiểu thả chỉ lưu phần TỌA ĐỘ THẢ + số lần bấm + kiểu thả + kỹ năng Tướng.
+    # Chọn kiểu nào thì UI ghi phần đó vào các khóa đang chạy (DEPLOY_MODE, DEPLOY_CARDS_CONFIG, MANUAL_POSITIONS, SPELL_CONFIG)
+    # -> bot vẫn đọc các khóa cũ như trước, không phải sửa gì.
+    "DEPLOY_PRESETS": {},                 # {tên: {"mode", "cards": [{slot, clicks_count, zones, skill_mode, skill_delay}], "singles", "spell"}}
+    "DEPLOY_PRESET_ACTIVE": "",           # tên kiểu thả đang dùng
+    "DEPLOY_CARDS_LOCKED": False,         # True = khóa vị trí/loại thẻ quân (đã setup xong), chỉ chỉnh tọa độ thả
+    # Thẻ LƯỢT 2 (Làng phụ): [{"slot": N, "pos": [x, y] (tùy chọn: bỏ trống = theo thẻ cùng số), "type": "troop|hero" (tùy chọn),
+    #   "clicks_count": N (tùy chọn), "drop": [[x, y], ...] (tùy chọn: điểm thả riêng, dùng cho kiểu thả nhiều điểm; thẻ tiếp viện 8-9 không có thẻ cùng số ở lượt 1)}]
+    "ROUND2_CARDS": [],
 }
 
 _json_lock = threading.Lock()
@@ -455,6 +480,77 @@ def _normalize_deploy_cards(value):
     return cards
 
 
+def _normalize_preset(value):
+    """1 kiểu thả -> dict sạch; sai cấu trúc -> None."""
+    if not isinstance(value, dict):
+        return None
+    mode = str(value.get("mode", "")).strip()
+    if mode not in _DEPLOY_ZONE_MODES:
+        mode = JSON_CONFIG_DEFAULTS["DEPLOY_MODE"]
+    cards = []
+    for i, item in enumerate(value.get("cards") or [], 1):
+        if not isinstance(item, dict):
+            continue
+        sk = str(item.get("skill_mode", "none")).strip().lower()
+        try:
+            delay = max(0.0, float(item.get("skill_delay", 0) or 0))
+        except (TypeError, ValueError):
+            delay = 0.0
+        cards.append({"slot": _to_positive_int(item.get("slot"), i),
+                      "clicks_count": _to_positive_int(item.get("clicks_count"), 1),
+                      "zones": _normalize_card_zones(item.get("zones")),
+                      "skill_mode": sk if sk in _SKILL_MODES else "none",
+                      "skill_delay": delay})
+    singles = {}
+    src = value.get("singles") if isinstance(value.get("singles"), dict) else {}
+    for key in ("left_corner", "right_corner"):
+        p = _valid_point(src.get(key))
+        if p:
+            singles[key] = p
+    return {"mode": mode, "cards": cards, "singles": singles,
+            "spell": _normalize_spell_config(value.get("spell"))}
+
+
+def _normalize_presets(value):
+    out = {}
+    if isinstance(value, dict):
+        for name, item in value.items():
+            name = str(name).strip()
+            preset = _normalize_preset(item)
+            if name and preset is not None:
+                out[name] = preset
+    return out
+
+
+def _normalize_round2_cards(value):
+    """ROUND2_CARDS: slot >= 1; pos / type / clicks_count là tùy chọn. Slot trùng -> giữ mục đầu."""
+    out, seen = [], set()
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            slot = _to_positive_int(item.get("slot"), 0)
+            if slot < 1 or slot in seen:
+                continue
+            seen.add(slot)
+            card = {"slot": slot}
+            pos = _valid_point(item.get("pos"))
+            if pos:
+                card["pos"] = pos
+            kind = str(item.get("type", "")).strip().lower()
+            if kind in ("troop", "hero"):
+                card["type"] = kind
+            if item.get("clicks_count") not in (None, "", 0):
+                card["clicks_count"] = _to_positive_int(item.get("clicks_count"), 1)
+            drop = item.get("drop")
+            if isinstance(drop, list):
+                pts = [p for p in (_valid_point(v) for v in drop) if p]
+                if pts:
+                    card["drop"] = pts
+            out.append(card)
+    return out
+
+
 def _normalize_spell_config(value):
     default = JSON_CONFIG_DEFAULTS["SPELL_CONFIG"]
     src = value if isinstance(value, dict) else {}
@@ -468,6 +564,21 @@ def _normalize_spell_config(value):
     if not points:
         points = [list(p) for p in default["TARGET_POSITIONS"]]
     return {"DROP_MODE": mode, "TARGET_POSITIONS": points}
+
+
+def _normalize_anomaly_images(value):
+    """Danh sách đường dẫn ảnh nút luồng lạ: chỉ giữ chuỗi không rỗng, bỏ trùng, giữ thứ tự, dùng dấu '/'."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    out, seen = [], set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        p = item.strip().replace("\\", "/")
+        if p and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
 
 
 def _normalize_json_config(raw):
@@ -506,7 +617,12 @@ def _normalize_json_config(raw):
     data["TEMPLATE_SOLO_SCORE"] = _to_float_range(
         data.get("TEMPLATE_SOLO_SCORE"), d["TEMPLATE_SOLO_SCORE"], 0.80, 1.0)
     data["WALL_WEIGHT_PRICE"] = _to_float_range(data.get("WALL_WEIGHT_PRICE"), d["WALL_WEIGHT_PRICE"], 0.0, 1.0)
-    data["WALL_WEIGHT_ID"] = _to_float_range(data.get("WALL_WEIGHT_ID"), d["WALL_WEIGHT_ID"], 0.0, 1.0)
+    data["WALL_WEIGHT_IMAGE"] = _to_float_range(data.get("WALL_WEIGHT_IMAGE"), d["WALL_WEIGHT_IMAGE"], 0.0, 1.0)
+    data["WALL_WEIGHT_TEXT"] = _to_float_range(data.get("WALL_WEIGHT_TEXT"), d["WALL_WEIGHT_TEXT"], 0.0, 1.0)
+    data["WALL_LEVEL_MAIN"] = _to_nonneg_int(data.get("WALL_LEVEL_MAIN"), d["WALL_LEVEL_MAIN"])
+    data["WALL_LEVEL_SUB"] = _to_nonneg_int(data.get("WALL_LEVEL_SUB"), d["WALL_LEVEL_SUB"])
+    _res = str(data.get("WALL_RESOURCE", d["WALL_RESOURCE"])).strip().upper()
+    data["WALL_RESOURCE"] = _res if _res in ("AUTO", "GOLD", "ELIXIR") else d["WALL_RESOURCE"]
     data["WALL_MIN_ID_SCORE"] = _to_float_range(data.get("WALL_MIN_ID_SCORE"), d["WALL_MIN_ID_SCORE"], 0.0, 1.0)
     data["WALL_MIN_VARIANT_VOTES"] = _to_positive_int(
         data.get("WALL_MIN_VARIANT_VOTES"), d["WALL_MIN_VARIANT_VOTES"])
@@ -517,6 +633,10 @@ def _normalize_json_config(raw):
     data["WALL_MENU_SWIPE_DURATION"] = _to_positive_int(
         data.get("WALL_MENU_SWIPE_DURATION"), d["WALL_MENU_SWIPE_DURATION"])
     data["DEPLOY_CARDS_CONFIG"] = _normalize_deploy_cards(data.get("DEPLOY_CARDS_CONFIG"))
+    data["DEPLOY_PRESETS"] = _normalize_presets(data.get("DEPLOY_PRESETS"))
+    data["DEPLOY_PRESET_ACTIVE"] = str(data.get("DEPLOY_PRESET_ACTIVE") or "").strip()
+    data["DEPLOY_CARDS_LOCKED"] = _to_bool(data.get("DEPLOY_CARDS_LOCKED"), d["DEPLOY_CARDS_LOCKED"])
+    data["ROUND2_CARDS"] = _normalize_round2_cards(data.get("ROUND2_CARDS"))
     data["SPELL_CONFIG"] = _normalize_spell_config(data.get("SPELL_CONFIG"))
     # Thiết lập giao diện: thiếu / sai kiểu -> giá trị mặc định ở đầu config.py
     data["LDPLAYER_PATH"] = _to_text(data.get("LDPLAYER_PATH"), d["LDPLAYER_PATH"])
@@ -556,6 +676,14 @@ def _normalize_json_config(raw):
     data["OCR_FAST_SCALE"] = _to_positive_float(data.get("OCR_FAST_SCALE"), d["OCR_FAST_SCALE"])
     data["OCR_FAST_THRESH"] = int(_to_float_range(data.get("OCR_FAST_THRESH"), d["OCR_FAST_THRESH"], 0, 255))
     data["OCR_USE_TESSEROCR"] = _to_bool(data.get("OCR_USE_TESSEROCR"), d["OCR_USE_TESSEROCR"])
+    # Luồng lạ / popup không xác định
+    data["ANOMALY_BUTTON_IMAGES"] = _normalize_anomaly_images(data.get("ANOMALY_BUTTON_IMAGES"))
+    data["ANOMALY_MATCH_THRESHOLD"] = _to_float_range(
+        data.get("ANOMALY_MATCH_THRESHOLD"), d["ANOMALY_MATCH_THRESHOLD"], 0.50, 0.99)
+    data["ANOMALY_SCAN_RETRIES"] = _to_positive_int(
+        data.get("ANOMALY_SCAN_RETRIES"), d["ANOMALY_SCAN_RETRIES"])
+    data["ANOMALY_SETTLE_SECONDS"] = _to_float_range(
+        data.get("ANOMALY_SETTLE_SECONDS"), d["ANOMALY_SETTLE_SECONDS"], 0.3, 10.0)
     return data
 
 

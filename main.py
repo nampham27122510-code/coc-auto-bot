@@ -71,6 +71,38 @@ def _register_tesseract():
         pass
 
 
+# ----------------------------------------------------------------------------------------------
+# KIỂM TRA BẢN QUYỀN (offline, gắn mã máy). Đặt TRƯỚC mọi thứ khác: chưa có license hợp lệ thì
+# không tải Tesseract, không mở giao diện chính, không kiểm tra cập nhật.
+# ----------------------------------------------------------------------------------------------
+def _ensure_license():
+    from core import license as lic
+    status = lic.check_license()
+    if status.ok:
+        # Sắp hết hạn (<= 7 ngày) -> âm thầm lấy bản gia hạn nếu nhà phát hành đã cấp
+        try:
+            import datetime
+            if status.expires and (datetime.date.fromisoformat(status.expires) - datetime.date.today()).days <= 7:
+                threading.Thread(target=lic.fetch_license_online, daemon=True).start()
+        except Exception:
+            pass
+        return
+    # Chưa có / hết hạn: thử tải từ máy chủ trước, đã được cấp thì khỏi hiện cửa sổ kích hoạt
+    online = lic.fetch_license_online(timeout=5)
+    if online is not None and online.ok:
+        return
+    try:
+        from gui.license_window import show_license_window
+        activated = show_license_window(status)
+    except Exception:
+        print("❌ Không mở được cửa sổ kích hoạt:\n" + traceback.format_exc())
+        print(f"   {status.reason}\n   Mã máy: {status.machine_id}")
+        activated = False
+    if not activated:
+        sys.exit(0)
+
+
+_ensure_license()
 auto_setup_dependencies()
 
 from gui.app_ui import (
@@ -101,6 +133,68 @@ class BotManager:
         self._run_id = 0                      # tăng mỗi lần Bắt đầu: luồng cũ (đã Dừng) tự thoát, không chạy song song
         self.state = STATE_STOPPED
         set_logger(self.ui.log)               # cảnh báo OCR (thiếu Tesseract...) hiện lên Log UI
+        try:   # kiểm tra cập nhật sau khi giao diện đã lên (chỉ chạy khi license hợp lệ - đã qua _ensure_license)
+            self.ui.after(3000, self._start_update_check)
+        except Exception:
+            threading.Thread(target=self._update_worker, daemon=True).start()
+
+    # ------------------------------------------------------------------ CẬP NHẬT
+    def _start_update_check(self):
+        threading.Thread(target=self._update_worker, daemon=True).start()
+
+    def _update_worker(self):
+        """Chạy ở luồng nền: kiểm tra bản mới (cần license hợp lệ), hỏi người dùng ở luồng giao diện."""
+        try:
+            from core import updater
+            info = updater.check_for_updates()
+            if info is None:
+                return
+            self.ui.log(f"🆕 Có bản cập nhật mới: v{info.version} (đang dùng {updater.CURRENT_VERSION})")
+            if not getattr(sys, "frozen", False):
+                self.ui.log("ℹ️ Đang chạy từ mã nguồn -> không tự cập nhật.")
+                return
+            self.ui.after(0, lambda: self._ask_update(info))
+        except Exception:
+            self.ui.log("[⚠️ CẢNH BÁO] Kiểm tra cập nhật lỗi:\n" + traceback.format_exc())
+
+    def _ask_update(self, info):
+        from tkinter import messagebox
+        ok = messagebox.askyesno(
+            "Cập nhật phần mềm",
+            f"Có bản mới v{info.version}.\nBot sẽ dừng, tự cập nhật rồi mở lại "
+            f"(config.json và license.key được giữ nguyên).\n\nCập nhật ngay?",
+            parent=self.ui)
+        if ok:
+            self.ui.log("⬇️ Đang tải bản cập nhật...")
+            threading.Thread(target=self._apply_update, args=(info,), daemon=True).start()
+
+    def _apply_update(self, info):
+        from core import updater
+        last = {"step": -1}
+
+        def progress(frac):
+            step = int(frac * 4)   # log ở mốc 25/50/75/100%
+            if step != last["step"]:
+                last["step"] = step
+                self.ui.log(f"⬇️ Đã tải {min(step * 25, 100)}%")
+
+        try:
+            updater.apply_update(info, progress=progress)
+        except updater.UpdateError as e:
+            self.ui.log(f"[❌ LỖI] Cập nhật thất bại, giữ nguyên bản hiện tại: {e}")
+            return
+        except Exception:
+            self.ui.log("[❌ LỖI] Cập nhật gặp lỗi:\n" + traceback.format_exc())
+            return
+        self.ui.log("✅ Đã xác minh chữ ký bản cập nhật. Đang đóng app để cài đặt và mở lại...")
+        self.ui.after(0, self._exit_for_update)
+
+    def _exit_for_update(self):
+        try:
+            self.stop_bot()
+            self.ui.destroy()
+        finally:
+            os._exit(0)   # bộ cài (.bat) đang chờ tiến trình này thoát
 
     def _alive(self, run_id):
         """Luồng chạy `run_id` còn hiệu lực (chưa bị Dừng và chưa bị lần Bắt đầu mới thay thế)."""

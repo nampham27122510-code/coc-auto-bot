@@ -4,3 +4,20 @@ dataset/
 __pycache__/ 
 *.exe 
 *.pyc 
+
+# --- bí mật / khóa: TUYỆT ĐỐI không commit ---
+tools/secret/
+tools/issued/
+license.key
+*.pem
+# --- dữ liệu người dùng ---
+config.json
+config.json.bak
+config.json.prev
+# --- kết quả build / tạm ---
+dist.zip
+release/
+build_release_stage/
+_update/
+venv/
+.venv/
